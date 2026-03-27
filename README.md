@@ -4,15 +4,24 @@ Curated Repository Of Well-resolved Non-covalent interactions.
 
 ## About
 
-CROWN is a novel protein-ligand interaction database, consisting of 153,005 curated structures.
-CROWN was developed with a fully automated and open-source preprocessing pipeline built on PLInder, which is specified in this repository.
+CROWN is a protein–ligand interaction database containing 153,005 carefully curated structures focused on well-resolved non-covalent interactions.
 
-This repository contains all scripts required to re-build CROWN, as well as the metadata on all CROWN entries. The full dataset is available on:
+The dataset was generated using a fully automated, open-source preprocessing pipeline built on PLInder, which is documented and implemented within this repository.
+
+This repository provides:
+
+- All scripts required to rebuild the CROWN dataset
+- Metadata for all CROWN entries
+- The complete preprocessing workflow
+
+The full dataset can be accessed at:
 ...
 
-<img width="837" height="659" alt="image" src="https://github.com/user-attachments/assets/a6583ed2-b564-4c28-9d49-80ca6704e2e4" />
+<img width="400" alt="image" src="https://github.com/user-attachments/assets/a6583ed2-b564-4c28-9d49-80ca6704e2e4" />
 
 ## Installation
+
+Clone the repository and install the package in editable mode:
 
 ```bash
 git clone https://github.com/robin-poelmans/CROWN.git
