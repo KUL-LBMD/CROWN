@@ -1,0 +1,25 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<ForceField>
+  <Info>
+    <DateGenerated>2026-02-15</DateGenerated>
+  </Info>
+  <AtomTypes>
+    <Type element="Mo" name="Mo" class="Mo" mass="96.0"/>
+    <Type element="O" name="OV" class="OV" mass="16.0"/>
+    <Type element="H" name="HV" class="HV" mass="1.008"/>
+  </AtomTypes>
+  <HarmonicBondForce>
+    <Bond class1="OV" class2="HV" length="0.098" k="429947.8399999999"/>
+    <Bond class1="Mo" class2="OV" length="0.25" k="72634.23999999999"/>
+  </HarmonicBondForce>
+  <HarmonicAngleForce>
+    <Angle class1="HV" class2="OV" class3="HV" angle="1.87523491" k="259.1988"/>
+    <Angle class1="Mo" class2="OV" class3="HV" angle="1.704594" k="184.062528"/>
+  </HarmonicAngleForce>
+  <NonbondedForce coulomb14scale="1.0" lj14scale="1.0">
+    <UseAttributeFromResidue name="charge"/>
+    <Atom class="Mo" sigma="0.2719022887694253" epsilon="0.23430400000469714"/>
+    <Atom class="OV" sigma="0.31779645520457067" epsilon="0.6521433432527789"/>
+    <Atom class="HV" sigma="0.05379246460854296" epsilon="0.019664799991173057"/>
+  </NonbondedForce>
+<Residues><Residue name="MOW"><Atom name="Mo" type="Mo" charge="0.8488539975744006"/><Atom name="O" type="OV" charge="-0.6151150019481625"/><Atom name="H1" type="HV" charge="0.34712199996707327"/><Atom name="H2" type="HV" charge="0.34712199996707327"/><Bond atomName1="Mo" atomName2="O"/><Bond atomName1="O" atomName2="H1"/><Bond atomName1="O" atomName2="H2"/></Residue></Residues></ForceField>

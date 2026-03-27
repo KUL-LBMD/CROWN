@@ -1,0 +1,211 @@
+# FF for Mo(IV) site in NAP active site, and modifications to Amber94 ff for polyphosphates
+
+MASS
+HV   1.008
+Mo  96.00
+S11  32.00
+S12  32.00
+S13  32.00
+S14  32.00
+OV   16.00
+OM   16.00
+SX   32.00
+SY   32.00
+SV   32.00
+SZ   32.00
+SR   32.00
+FX   55.84
+FY   55.84
+FV   55.84
+FZ   55.84
+SN   32.00
+SO   32.00
+NP   14.00
+SM   32.00
+CT 12.01
+OS 16.00
+P  30.97
+H1 1.008 
+O2 16.00
+O3 16.00
+
+BOND
+OV-Mo    86.8    2.50    !poprawione z 36.8 na 86.8 i dlugosc 2.5
+SM-CT    133.6    1.857
+SM-Mo    73.9    2.702  ! wydÅ‚uÅ¼am o 0.2 dÅ‚ugosc i podnoszÄ™ staÅ‚a o do 74
+S12-Mo    76.5    2.370 ! wyrownuje wszystkie siÅ‚y i uniformuzje dlugosci 
+S11-Mo    76.5    2.390
+S13-Mo    76.5    2.370
+S14-Mo    76.5    2.390
+c-S11    170.8    1.757
+c-S12    173.4    1.750
+c-S13    180.5    1.751
+c-S14    171.8    1.755
+OV-HV    513.8    0.98
+CT-H1   340.000   1.090         from amber98
+CT-OS   320.000   1.410
+c3-OS   320.000   1.410
+OS-P    230.000   1.61000              
+O2-P    525.000   1.480 
+O3-P    525.000   1.480         by analogy to O2
+
+ANGLE
+S13-Mo-OV    99.021    131.331
+S14-Mo-OV    69.396    81.373
+S11-Mo-OV    89.303    79.086
+S12-Mo-OV    71.572    135.033
+SM-Mo-OV    62.432    71.760
+Mo-OV-HV    21.996    97.666
+S14-Mo-S13    75.130    82.038
+S11-Mo-S14    104.333    86.788
+S12-Mo-S11    83.874    81.631
+S13-Mo-S12    116.576    84.359
+S11-Mo-S13    117.210    144.746
+S12-Mo-S14    101.788    137.508
+S13-Mo-SM    103.715    83.806
+S14-Mo-SM    145.828    128.235
+S12-Mo-SM    108.742    89.676
+S11-Mo-SM    129.696    128.087
+Mo-S13-c    113.388    109.002
+Mo-S12-c    100.662    109.054
+Mo-S14-c     98.055    108.260
+Mo-S11-c    89.794    108.866
+Mo-SM-CT    83.124    108.421
+CT-CT-SM    92.753    115.942
+SM-CT-H1    47.037    108.505
+S13-c-c     99.410    119.596
+S14-c-c     93.682    120.954
+S11-c-c     95.482    119.347
+S12-c-c     96.252    120.894
+S14-c-c3    91.719    117.620
+S13-c-c3    110.700    118.127
+S11-c-c3    108.654    118.317
+S12-c-c3    93.046    117.523
+HV-OV-HV    30.975    107.443
+c-cc-nc    64.3    130.8 gaff
+nh-cc-c    121.275    108.28
+OS-c3-c    68    109.82 gaff
+OS-c3-nh    71.3    109 taki    jak os-c3-na u michala w FAD
+h2-c3-OS    50.8    108.58 gaff
+c3-OS-c3    62.1    113.41 gaff
+n-ca-nb    71.2    123.3  fbased on gaff nb-ca-nb angle corrected
+n-ca-o    74.2    123.05  (takie jak n-c-o w FAD)
+H1-CT-OS   50.000     109.500     
+H1-CT-H1   35.000     109.500     
+CT-OS-P   100.000     120.500         
+O2-P -O2  140.000     119.900       
+O3-P -O3  140.000     119.90     by analogy to O2
+OS-P -O2  100.000     108.230   
+OS-P -O3  100.000     108.23     by analogy to O2
+OS-P -OS   45.000     102.600      
+P -OS-P    12.685     150.000    J Comp Chem 2003, 24, 1016-1025 
+c3-c-OS    69.3      111.96   gaff 
+cc-c-OS    70.5      112.30    gaff
+cc-c-OS    70.5      112.30    GAff
+P-OS-c3   100.000    120.500
+c3-c3-OS    67.8      108.42  gaff
+OS-c3-h1   50.000     109.500
+
+DIHE
+S11-c-c-S12    4   26.600       180.000           2.000 
+S13-c-c-S14    4   26.600       180.000           2.000
+c3-c-c-c3    4   26.600       180.000           2.000
+c3-c3-OS-c3     1  0  180  2
+c3-OS-c3-c3     1  0  180  2
+c3-OS-c3-h1     1  0  180  2
+c3-OS-c3-h2     1  0  180  2
+c3-OS-c3-nh     1  0  180  2
+c-c3-OS-c3      1  0  180  2
+c-S11-Mo-OV    1  0  180  2
+c-S11-Mo-S12   1  0  180  2
+c-S11-Mo-S13   1  0  180  2
+c-S11-Mo-S14   1  0  180  2
+c-S11-Mo-SM    1  0  180  2
+c-S12-Mo-OV    1  0  180  2
+c-S12-Mo-S11   1  0  180  2
+c-S12-Mo-S13   1  0  180  2
+c-S12-Mo-S14   1  0  180  2
+c-S12-Mo-SM    1  0  180  2
+c-S13-Mo-OV    1  0  180  2
+c-S13-Mo-S11   1  0  180  2
+c-S13-Mo-S12   1  0  180  2
+c-S13-Mo-S14   1  0  180  2
+c-S13-Mo-SM    1  0  180  2
+c-S14-Mo-OV    1  0  180  2
+c-S14-Mo-S11   1  0  180  2
+c-S14-Mo-S12   1  0  180  2
+c-S14-Mo-S13   1  0  180  2
+c-S14-Mo-SM    1  0  180  2
+CT-CT-SM-Mo    1  0  180  2
+CT-SM-Mo-OV    1    0.000       180.000           2.000
+CT-SM-Mo-S11   1  0  180  2
+CT-SM-Mo-S12   1  0  180  2
+CT-SM-Mo-S13   1  0  180  2
+CT-SM-Mo-S14   1  0  180  2
+H1-CT-SM-Mo    1  0  180  2
+HV-OV-Mo-S11   1  0  180  2
+HV-OV-Mo-S12   1  0  180  2
+HV-OV-Mo-S13   1  0  180  2
+HV-OV-Mo-S14   1  0  180  2
+Mo-S11-c-c     1  0  180  2
+Mo-S11-c-c3    1  0  180  2
+Mo-S12-c-c     1  0  180  2
+Mo-S12-c-c3    1  0  180  2
+Mo-S13-c-c     1  0  180  2
+Mo-S13-c-c     1  0  180  2
+Mo-S13-c-c3    1  0  180  2
+Mo-S14-c-c     1  0  180  2
+Mo-S14-c-c     1  0  180  2
+Mo-S14-c-c3    1  0  180  2
+OV-Mo-S11-c    1  0  180  2
+OV-Mo-S12-c    1  0  180  2
+OV-Mo-S13-c    1  0  180  2
+OV-Mo-S14-c    1  0  180  2
+P-OS-c3-c3      1  0  180  2
+P-OS-c3-h1      1  0  180  2
+S11-Mo-S12-c   1  0  180  2
+S11-Mo-S13-c   1  0  180  2
+S11-Mo-S14-c   1  0  180  2
+S13-Mo-S11-c   1  0  180  2
+S13-Mo-S12-c   1  0  180  2
+S13-Mo-S12-c   1  0  180  2
+S13-Mo-S14-c   1  0  180  2
+S14-Mo-S11-c   1  0  180  2
+S14-Mo-S12-c   1  0  180  2
+SM-Mo-OV-HV    1  0  180  2
+SM-Mo-S11-c    1  0  180  2
+SM-Mo-S12-c    1  0  180  2
+SM-Mo-S13-c    1  0  180  2
+SM-Mo-S14-c    1  0  180  2
+H1-CT-OS-P    3       0.105     000.000       3.000          J Comp Chem 2003, 24, 1016-1025
+O2-P -OS-CT   2       1.179     000.000      -3.000          J Comp Chem 2003, 24, 1016-1025
+O2-P -OS-CT   2      -0.812     000.000       2.000          J Comp Chem 2003, 24, 1016-1025
+CT-OS-P -OS   1      -1.560       0.0         1.0            J Comp Chem 2003, 24, 1016-1025
+CT-OS-P -O    1      -1.560       0.0         1.0            mÃ³j dodatek
+O2-P -OS-P    2      -0.709       0.0         2.0            J Comp Chem 2003, 24, 1016-1025
+O3-P -OS-P    3      -0.255       0.0         3.0            J Comp Chem 2003, 24, 1016-1025
+P-OS-P-OS     1       0.897       0.00        1.0            J Comp Chem 2003, 24, 1016-1025
+ 
+IMPROPER
+c-c3-S11-c          1.1          180.0         2.0 
+c-c3-S12-c          1.1          180.0         2.0
+c-c3-S13-c          1.1          180.0         2.0
+c-c3-S14-c          1.1          180.0         2.0
+
+
+NONBON
+Mo  1.526   0.0560
+S11  2.000   0.2500         
+S12  2.000   0.2500        
+S13  2.000   0.2500        
+S14  2.000   0.2500        
+OV   1.7835723    0.155866 /TIP3P-FB (Wang, Martinez, Pande, J. Phys. Chem. Lett., 2014.)  
+SM   2.000   0.2500
+HV  0.3019  0.0047  /gaff2 ho
+H1          1.3870  0.0157             Veenstra et al JCC,8,(1992),963
+O2          1.6612  0.2100             OPLS
+O3          1.6612  0.2100             OPLS - by analogy to O2
+CT          1.9080  0.1094             Spellmeyer
+P           2.1000  0.2000             JCC,7,(1986),230;
+OS          1.6837  0.1700             OPLS ether
+

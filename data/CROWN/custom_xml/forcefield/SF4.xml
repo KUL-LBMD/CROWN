@@ -1,0 +1,87 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<ForceField>
+  <Info>
+    <DateGenerated>2026-02-13</DateGenerated>
+  </Info>
+  <AtomTypes>
+    <Type element="Fe" name="FD" class="FD" mass="56.0"/>
+    <Type element="S" name="SD" class="SD" mass="32.0"/>
+    <Type element="Fe" name="FO" class="FO" mass="56.0"/>
+    <Type element="S" name="SU" class="SU" mass="32.0"/>
+    <Type element="Fe" name="FU" class="FU" mass="56.0"/>
+    <Type element="Fe" name="FP" class="FP" mass="56.0"/>
+  </AtomTypes>
+  <HarmonicBondForce>
+    <Bond class1="FP" class2="SU" length="0.22200000000000003" k="63011.039999999986"/>
+    <Bond class1="SD" class2="FP" length="0.23500000000000001" k="50207.99999999999"/>
+    <Bond class1="FU" class2="SD" length="0.22200000000000003" k="63011.039999999986"/>
+    <Bond class1="FU" class2="SU" length="0.23500000000000001" k="50207.99999999999"/>
+    <Bond class1="FO" class2="SU" length="0.23500000000000001" k="50207.99999999999"/>
+    <Bond class1="SD" class2="FO" length="0.22200000000000003" k="63011.039999999986"/>
+    <Bond class1="FD" class2="SD" length="0.23500000000000001" k="50207.99999999999"/>
+    <Bond class1="FD" class2="SU" length="0.22200000000000003" k="63011.039999999986"/>
+  </HarmonicBondForce>
+  <HarmonicAngleForce>
+    <Angle class1="SD" class2="FU" class3="SU" angle="1.82386985" k="108.784"/>
+    <Angle class1="SD" class2="FP" class3="SU" angle="1.82386985" k="108.784"/>
+    <Angle class1="FU" class2="SD" class3="FP" angle="1.2740909" k="87.864"/>
+    <Angle class1="FU" class2="SU" class3="FP" angle="1.2740909" k="87.864"/>
+    <Angle class1="SU" class2="FO" class3="SU" angle="1.8675031" k="58.576"/>
+    <Angle class1="SU" class2="FU" class3="SU" angle="1.8675031" k="58.576"/>
+    <Angle class1="SU" class2="FD" class3="SD" angle="1.82386985" k="108.784"/>
+    <Angle class1="FO" class2="SD" class3="FP" angle="1.2740909" k="87.864"/>
+    <Angle class1="FO" class2="SU" class3="FU" angle="1.24442029" k="71.128"/>
+    <Angle class1="FO" class2="SU" class3="FP" angle="1.2740909" k="87.864"/>
+    <Angle class1="SD" class2="FD" class3="SD" angle="1.8675031" k="58.576"/>
+    <Angle class1="SD" class2="FO" class3="SU" angle="1.82386985" k="108.784"/>
+    <Angle class1="SD" class2="FP" class3="SD" angle="1.8675031" k="58.576"/>
+    <Angle class1="FD" class2="SD" class3="FO" angle="1.2740909" k="87.864"/>
+    <Angle class1="FD" class2="SD" class3="FP" angle="1.24442029" k="71.128"/>
+    <Angle class1="FD" class2="SU" class3="FO" angle="1.2740909" k="87.864"/>
+    <Angle class1="FD" class2="SU" class3="FU" angle="1.2740909" k="87.864"/>
+    <Angle class1="FD" class2="SD" class3="FU" angle="1.2740909" k="87.864"/>
+  </HarmonicAngleForce>
+  <PeriodicTorsionForce>
+    <Proper class1="FP" class2="SD" class3="FU" class4="SU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FP" class2="SD" class3="FO" class4="SU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="SD" class2="FU" class3="SU" class4="FP" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="SD" class2="FD" class3="SD" class4="FP" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FU" class2="SU" class3="FO" class4="SU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="SD" class2="FD" class3="SU" class4="FU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FU" class2="SD" class3="FP" class4="SU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FU" class2="SU" class3="FP" class4="SD" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="SU" class2="FO" class3="SU" class4="FP" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="SU" class2="FU" class3="SU" class4="FP" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="SU" class2="FD" class3="SD" class4="FP" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="SU" class2="FD" class3="SD" class4="FU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="SU" class2="FD" class3="SD" class4="FO" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="SD" class2="FD" class3="SD" class4="FO" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FO" class2="SD" class3="FP" class4="SD" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FO" class2="SD" class3="FP" class4="SU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FO" class2="SU" class3="FU" class4="SD" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FO" class2="SU" class3="FU" class4="SU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="SD" class2="FD" class3="SU" class4="FO" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FO" class2="SU" class3="FP" class4="SD" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="SD" class2="FD" class3="SD" class4="FU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="SD" class2="FO" class3="SU" class4="FU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="SD" class2="FO" class3="SU" class4="FP" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="SD" class2="FP" class3="SD" class4="FU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FD" class2="SD" class3="FO" class4="SU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FD" class2="SD" class3="FP" class4="SD" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FD" class2="SD" class3="FP" class4="SU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FD" class2="SU" class3="FO" class4="SD" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FD" class2="SU" class3="FO" class4="SU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FD" class2="SU" class3="FU" class4="SD" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FD" class2="SU" class3="FU" class4="SU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+    <Proper class1="FD" class2="SD" class3="FU" class4="SU" periodicity1="2" phase1="3.141594" k1="0.0"/>
+  </PeriodicTorsionForce>
+  <NonbondedForce coulomb14scale="0.8333333333333334" lj14scale="0.5">
+    <UseAttributeFromResidue name="charge"/>
+    <Atom class="FD" sigma="0.2594297067650727" epsilon="0.05439199984868859"/>
+    <Atom class="SD" sigma="0.3563594872561357" epsilon="1.046"/>
+    <Atom class="FO" sigma="0.2594297067650727" epsilon="0.05439199984868859"/>
+    <Atom class="SU" sigma="0.3563594872561357" epsilon="1.046"/>
+    <Atom class="FU" sigma="0.2594297067650727" epsilon="0.05439199984868859"/>
+    <Atom class="FP" sigma="0.2594297067650727" epsilon="0.05439199984868859"/>
+  </NonbondedForce>
+<Residues><Residue name="SF4"><Atom name="FE3" type="FD" charge="0.21839999999999998"/><Atom name="SN" type="SD" charge="-0.35000000000000003"/><Atom name="FE2" type="FO" charge="0.22059999999999996"/><Atom name="SL" type="SU" charge="-0.3508"/><Atom name="FE1" type="FU" charge="0.21999999999999997"/><Atom name="SM" type="SD" charge="-0.35379999999999995"/><Atom name="FE4" type="FP" charge="0.2198"/><Atom name="SK" type="SU" charge="-0.35259999999999997"/><Bond atomName1="FE3" atomName2="SN"/><Bond atomName1="FE3" atomName2="SL"/><Bond atomName1="FE3" atomName2="SM"/><Bond atomName1="SN" atomName2="FE2"/><Bond atomName1="SN" atomName2="FE4"/><Bond atomName1="FE2" atomName2="SL"/><Bond atomName1="FE2" atomName2="SK"/><Bond atomName1="SL" atomName2="FE1"/><Bond atomName1="FE1" atomName2="SM"/><Bond atomName1="FE1" atomName2="SK"/><Bond atomName1="SM" atomName2="FE4"/><Bond atomName1="FE4" atomName2="SK"/></Residue></Residues></ForceField>

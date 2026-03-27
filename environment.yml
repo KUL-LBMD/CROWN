@@ -1,0 +1,34 @@
+name: CROWN
+
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python
+  - requests
+  - urllib3
+  - numpy
+  - numba
+  - pandas
+  - pyarrow
+  - scikit-learn
+  - biopython
+  - joblib
+  - matplotlib
+  - seaborn
+  - scipy
+  - tqdm
+  - einops
+  - networkx
+  - python-dotenv
+  - pip
+  - rdkit
+  - openmm
+  - openmmforcefields
+  - openff-toolkit
+  - pdbfixer
+  - openbabel
+  - pip:
+      - scikit-posthocs
+      - biopandas
