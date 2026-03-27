@@ -12,7 +12,6 @@ This repository provides:
 
 - All scripts required to rebuild the CROWN dataset
 - Metadata for all CROWN entries
-- The complete preprocessing workflow
 
 The full dataset can be accessed at:
 ...
