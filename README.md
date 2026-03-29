@@ -14,7 +14,7 @@ This repository provides:
 - Metadata for all CROWN entries
 
 The full dataset can be accessed at:
-...
+[https://crown.lbmd.be](https://crown.lbmd.be)
 
 <img width="400" alt="image" src="https://github.com/user-attachments/assets/a6583ed2-b564-4c28-9d49-80ca6704e2e4" />
 
