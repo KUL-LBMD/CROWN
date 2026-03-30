@@ -1,22 +1,16 @@
 # CROWN
 
-Curated Repository Of Well-resolved Non-covalent interactions.
+**Curated Repository Of Well-resolved Non-covalent interactions**
 
-## About
+CROWN is a protein–ligand interaction database containing 153,005 carefully curated structures focused on well-resolved non-covalent interactions. The dataset was generated using a fully automated, open-source preprocessing pipeline built on [PLInder](https://github.com/plinder-org/plinder), documented and implemented within this repository.
 
-CROWN is a protein–ligand interaction database containing 153,005 carefully curated structures focused on well-resolved non-covalent interactions.
+<img width="400" alt="CROWN overview" src="https://github.com/user-attachments/assets/a6583ed2-b564-4c28-9d49-80ca6704e2e4" />
 
-The dataset was generated using a fully automated, open-source preprocessing pipeline built on PLInder, which is documented and implemented within this repository.
+## Resources
 
-This repository provides:
-
-- All scripts required to rebuild the CROWN dataset
-- Metadata for all CROWN entries
-
-The full dataset can be accessed at:
-[https://crown.lbmd.be](https://crown.lbmd.be)
-
-<img width="400" alt="image" src="https://github.com/user-attachments/assets/a6583ed2-b564-4c28-9d49-80ca6704e2e4" />
+- **Web interface**: Browse and search the full dataset interactively at [crown.lbmd.be](https://crown.lbmd.be)
+- **Bulk download**: Download the complete archive from [Zenodo](https://zenodo.org/records/19334311)
+- **This repository**: All scripts required to rebuild the CROWN dataset from scratch, along with metadata for all entries
 
 ## Installation
 
@@ -28,17 +22,19 @@ cd CROWN
 pip install -e .
 ```
 
-Install the CROWN dataset:
-```bash
-bash download_data.sh
-```
-
 ## Usage
 
-Preprocess the CROWN training dataset:
+Preprocess the CROWN dataset:
+
 ```bash
 python scripts/preprocess_crown.py
 ```
+
+## Citation
+
+If you use CROWN in your work, please cite:
+
+> *Manuscript in preparation.*
 
 ## License
 
@@ -46,8 +42,6 @@ The CROWN dataset is licensed under the [Creative Commons Attribution 4.0 Intern
 
 ## Contact
 
-For questions or issues, contact:
-
 Robin Poelmans
 Laboratory for Biomolecular Modelling and Design, Department of Chemistry, KU Leuven
-robin.poelmans@kuleuven.be
+[robin.poelmans@kuleuven.be](mailto:robin.poelmans@kuleuven.be)
