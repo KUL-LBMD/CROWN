@@ -34,7 +34,9 @@ python scripts/preprocess_crown.py
 
 If you use CROWN in your work, please cite:
 
-> *Manuscript in preparation.*
+CROWN: Curated Repository Of Well-resolved Noncovalent interactions
+Robin Poelmans, Wout Van Eynde, Bence Bruncsics, Balint Bruncsics, Adam Arany, Yves Moreau, Arnout RD Voet
+bioRxiv 2026.03.30.714168; doi: [https://doi.org/10.64898/2026.03.30.714168](https://doi.org/10.64898/2026.03.30.714168)
 
 ## License
 
