@@ -128,7 +128,6 @@ def fix_nonstandard_residues(input_path, output_path, ligand_coords):
 				atom_coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
 				dists = np.linalg.norm(ligand_coords - atom_coord, axis=1)
 				if dists.min() < SHELL_RADIUS:
-					print(f'{residue.name} in shell')
 					return 'modified_in_shell'
 
         	# All nonstandard residues are far from ligands – safe to replace
@@ -144,7 +143,6 @@ def fix_nonstandard_residues(input_path, output_path, ligand_coords):
 			atom_coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
 			dists = np.linalg.norm(ligand_coords - atom_coord, axis=1)
 			if dists.min() < SHELL_RADIUS:
-				print(f'Missing {residue.name} in shell')
 				return 'missing_atoms_in_shell'
 
 	fixer.addMissingAtoms()
@@ -258,17 +256,6 @@ class OccupancyHandler:
         dict_key = f'{chain}_{res_num}'
 
         occupancy = float(columns[11])
-        if occupancy == 1.0:
-            return chain, res_num, occupancy, line
-
-        occ_info = self.occupancy_data[dict_key]
-        low_count = occ_info.low_occupancy_count
-        high_count = occ_info.high_occupancy_count
-
-        if high_count == low_count:
-            if occupancy < 0.5:
-                return None, None, None, None
-            
         return chain, res_num, occupancy, line
     
 class ArtifactRemover:
@@ -550,7 +537,7 @@ class OverlapResolver:
                         contact_counts[pair_key] += 1
                         contact_details[pair_key].append(atom_pair)
 
-            really_close_atoms = neighbor_search.search(atom1.coord, 1.0)
+            really_close_atoms = neighbor_search.search(atom1.coord, 0.8)
 
             # Deal with funky same-chain contacts
             for atom2 in really_close_atoms:
@@ -901,9 +888,12 @@ class ComplexFixer:
 
                 if bonds_to_add:
                     flags['has_missing_bonds'] = True
-                    print(f'Missing bond in {basename}')
                 if overlaps_to_resolve:
                     flags['has_steric_overlaps'] = True
+
+                if intra_chain_contacts:
+                    print(f'Intrachain contact in {basename}')
+                    print(intra_chain_contacts)
 
                 # Step 6: Resolve overlaps first
                 self.overlap_resolver.resolve_intra_chain_clashes(structure, intra_chain_contacts)
@@ -955,6 +945,8 @@ class ComplexFixer:
 
         num_cores [int]: Number of CPU's for parallel processing. Default value = 1
         """
+
+        print('Yohoho')
 
         system_id_list = self.filtered_subset['system_id'].tolist()
         ligand_id_list = self.filtered_subset['ligand_instance_chain'].tolist()

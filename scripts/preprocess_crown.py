@@ -37,14 +37,14 @@ def main():
 	"""
 
 	# Step 1: Dataframe subset from original PLInder parquet file
-	initial_subset = filter_structures()
+#	initial_subset = filter_structures()
 	print('Step 1 done')
 
 	df = pd.read_csv(DATA_DIR / 'CROWN' / 'metadata' / 'structure_filter_pass.csv')
 
 	# Step 2: fix initial mmCIF structures
 	complex_fixer = ComplexFixer(df)
-	complex_fixer.wrapper(8)
+	complex_fixer.wrapper(64)
 	print('Step 2 done')
 
 	# Step 3: PLI filter
