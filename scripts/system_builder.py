@@ -69,12 +69,14 @@ PH = 7.4
 
 # Module-level global — no decorators, no pickle issues
 _CCD_CACHE = None
+_CCD_PREFIX_INDEX = None
 
 def _get_ccd_cache():
-    global _CCD_CACHE
+    global _CCD_CACHE, _CCD_PREFIX_INDEX
     if _CCD_CACHE is None:
         _CCD_CACHE = build_ccd_atoms_bonds_cache()
-    return _CCD_CACHE
+        _CCD_PREFIX_INDEX = build_ccd_prefix_index(_CCD_CACHE)
+    return _CCD_CACHE, _CCD_PREFIX_INDEX
 
 def normalize(s: str) -> str:
     """Canonicalize a CCD atom name.
@@ -91,6 +93,57 @@ def normalize(s: str) -> str:
 # ---------------------------------------------------------------------------
 # CCD cache with bonds
 # ---------------------------------------------------------------------------
+
+def build_ccd_prefix_index(ccd_cache: dict) -> dict[str, list[str]]:
+    """Map each 3-char prefix to CCD codes starting with it.
+
+    Used to recover full CCD codes (e.g. A1D80) that were truncated to
+    their first three characters during mmCIF -> PDB conversion.
+    """
+    index: dict[str, list[str]] = {}
+    for code in ccd_cache:
+        index.setdefault(code[:3].upper(), []).append(code)
+    return index
+
+
+def resolve_ccd_code(
+    observed_name: str,
+    observed_atom_names: set[str],
+    ccd_cache: dict,
+    prefix_index: dict[str, list[str]],
+) -> str | None:
+    """Resolve a possibly-truncated residue name to its full CCD code.
+
+    * If the observed name is itself the only CCD code with that prefix,
+      it's returned directly.
+    * Otherwise the candidate whose heavy-atom set is a superset of the
+      observed atoms, with the smallest surplus, is chosen. Ties are
+      broken by preferring an exact-length (3-char) match, then
+      lexicographically for determinism.
+    * Returns None if nothing matches.
+    """
+    observed_name = observed_name.upper()
+    candidates = prefix_index.get(observed_name[:3], [])
+    if not candidates:
+        return None
+
+    # Fast path: single candidate, and it matches exactly.
+    if len(candidates) == 1 and candidates[0] == observed_name:
+        return observed_name
+
+    scored: list[tuple[int, int, str]] = []  # (surplus, not_exact_len, code)
+    for code in candidates:
+        atoms = set(ccd_cache[code]["atoms"])
+        if not observed_atom_names.issubset(atoms):
+            continue
+        surplus = len(atoms) - len(observed_atom_names)
+        not_exact_len = 0 if len(code) == len(observed_name) else 1
+        scored.append((surplus, not_exact_len, code))
+
+    if not scored:
+        return None
+    scored.sort()
+    return scored[0][2]
 
 def _parse_ccd_charge(value: str) -> int:
     """Parse a CCD ``_chem_comp_atom.charge`` field.
@@ -227,7 +280,7 @@ def _sanitize_with_fallback(mol: Chem.Mol, label: str) -> Chem.Mol:
     return mol
 
 def build_rdkit_mols_from_chain(
-    chain, ccd_cache: dict, chain_id: str
+    chain: gemmi.Chain, ccd_cache: dict, prefix_index: dict
 ) -> list[Chem.Mol]:
     """Build one RDKit ``Mol`` per connected fragment of a gemmi chain.
  
@@ -250,8 +303,14 @@ def build_rdkit_mols_from_chain(
     # sulfonates, etc. produce impossible valences and blow up during
     # sanitization / RemoveAllHs.
     for res_i, residue in enumerate(residues):
-        template = ccd_cache.get(residue.name)
+
+        observed_atoms = {normalize(a.name) for a in residue if a.element.name not in ("H", "D")}
+        resolved = resolve_ccd_code(residue.name, observed_atoms, ccd_cache, prefix_index)
+        template = ccd_cache.get(resolved) if resolved else None
         template_atoms = template["atoms"] if template is not None else {}
+
+        if template is None:
+            return None
 
         per_res: list[tuple[str, int, np.ndarray]] = []
         for atom in residue:
@@ -277,7 +336,11 @@ def build_rdkit_mols_from_chain(
  
     # -- Intra-residue bonds from CCD --
     for res_i, residue in enumerate(residues):
-        template = ccd_cache.get(residue.name)
+        
+        observed_atoms = {normalize(a.name) for a in residue if a.element.name not in ("H", "D")}
+        resolved = resolve_ccd_code(residue.name, observed_atoms, ccd_cache, prefix_index)
+        template = ccd_cache.get(resolved) if resolved else None
+
         if template is None:
             return None
         
@@ -325,7 +388,7 @@ def build_rdkit_mols_from_chain(
     # our own fallback logic per fragment.
     frags = list(Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=False))
     for i, frag in enumerate(frags):
-        _sanitize_with_fallback(frag, label=f"chain {chain_id} frag {i}")
+        _sanitize_with_fallback(frag, label=f"chain {chain.name} frag {i}")
     return frags
 
 # ---------------------------------------------------------------------------
@@ -381,7 +444,7 @@ def protonate_ligand(mol: Chem.Mol) -> Chem.Mol:
  
 def process_pdb(basename: str) -> None:
 
-    ccd_cache = _get_ccd_cache()          # <-- load inside the worker
+    ccd_cache, prefix_index = _get_ccd_cache()          # <-- load inside the worker
 
     structure = gemmi.read_structure(f'{DATA_DIR}/pdb/fixed/{basename}.pdb')
     model = structure[0]
@@ -401,7 +464,7 @@ def process_pdb(basename: str) -> None:
                 shutil.rmtree(out_dir)
                 return
             
-            mols = build_rdkit_mols_from_chain(chain, ccd_cache, chain.name)
+            mols = build_rdkit_mols_from_chain(chain, ccd_cache, prefix_index)
             if mols is None:
 
                 print(f'{basename} - {chain.name} - Molecule building failed')
@@ -442,7 +505,7 @@ def main():
     # ensure the cache file exists BEFORE spawning workers
     build_ccd_atoms_bonds_cache()
 
-    #process_pdb('3zwe_F')
+    #process_pdb('8y59_B')
     Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
 
 if __name__ == '__main__':

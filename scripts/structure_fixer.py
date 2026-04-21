@@ -1,6 +1,6 @@
 from src.config import DATA_DIR
 from src.CROWN.ccd_cache import _load_ccd_cache
-from src.crown.utils import COMMON_ARTIFACTS, remove_artifacts_and_fix_quotes
+from src.CROWN.utils import COMMON_ARTIFACTS, remove_artifacts_and_fix_quotes
 
 # Main structural biology dependencies
 import gemmi
@@ -260,6 +260,7 @@ def select_conformer(structure: gemmi.Structure):
                 # Delete losing atoms in reverse to preserve indices
                 for i in range(len(residue) - 1, -1, -1):
                     if residue[i].altloc in loser_altlocs:
+                        print(f'Removing from {residue.name}')
                         del residue[i]
 
                 # Clear altloc labels on remaining atoms
@@ -762,6 +763,10 @@ def main(pdb_id):
         overlap_resolver.resolve_overlaps(structure, overlaps_to_resolve)
         overlap_resolver.merge_bonded_chains(structure, bonds_to_add)
 
+        print(contact_info)
+        print(bonds_to_add)
+        print(overlaps_to_resolve)
+
         # 3.2: save cleaned mmCIF structure
         structure.make_mmcif_document().write_file(f'{DATA_DIR}/mmCIF/clean/{pdb_id}.cif')
 
@@ -851,4 +856,5 @@ def wrapper(num_cores = 1):
                 f.write(f"  {exc}\n")
 
 if __name__ == '__main__':
-    wrapper(num_cores = 48)
+    main('3odi')
+    #wrapper(num_cores = 48)
