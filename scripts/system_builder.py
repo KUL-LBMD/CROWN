@@ -30,13 +30,13 @@ import gemmi
 import os
 import pickle
 from rdkit import Chem
-from rdkit.Chem import AllChem
+from rdkit.Chem import AllChem, rdDetermineBonds
 from rdkit.Geometry import Point3D
 from typing import Iterable
 import shutil
 from joblib import Parallel, delayed
 import functools
-
+import subprocess
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -413,6 +413,54 @@ def _remove_chains_by_name(model: gemmi.Model, chain_names: Iterable[str]) -> No
 # Protonate ligands
 #----------------------------------------------------------------------------
 
+def _rebuild_from_coords(mol: Chem.Mol, charge: int) -> Chem.Mol | None:
+    """Re-derive bonds for ``mol`` from its 3D coordinates.
+
+    Discards all existing bonds and runs xyz2mol-style perception
+    (``rdDetermineBonds.DetermineBonds``) to recover connectivity and
+    bond orders from atom positions alone. ``charge`` should be the
+    total formal charge expected on the system — usually the sum of
+    the per-atom charges already set from the CCD.
+
+    Returns a new sanitized Mol, or None if bond perception fails.
+    Known weak spots: metals, radicals, some unusual heterocycles.
+    """
+
+    print('You are here')
+    writer = Chem.SDWriter('test.sdf')
+    writer.write(mol)
+    writer.close()
+    return None
+
+    if mol.GetNumConformers() == 0:
+        return None
+
+    # Build a clean atoms-only Mol with the same 3D coordinates.
+    # DetermineBonds doesn't need pre-existing bonds and is cleaner
+    # when it doesn't have to ignore them.
+    new = Chem.RWMol()
+    for atom in mol.GetAtoms():
+        new.AddAtom(Chem.Atom(atom.GetAtomicNum()))
+    src_conf = mol.GetConformer()
+    new_conf = Chem.Conformer(new.GetNumAtoms())
+    for i in range(new.GetNumAtoms()):
+        new_conf.SetAtomPosition(i, src_conf.GetAtomPosition(i))
+    new.AddConformer(new_conf, assignId=True)
+    rebuilt = new.GetMol()
+
+    # Try the CCD-summed charge first, then nearby integers.  Partial
+    # models and edge-case protonation states can throw the charge off
+    # by ±1 or so, and DetermineBonds is strict about it.
+    for delta in (0, -1, 1, -2, 2, -3, 3):
+        candidate = Chem.Mol(rebuilt)  # fresh copy per attempt
+        try:
+            rdDetermineBonds.DetermineBonds(candidate, charge=charge + delta)
+            Chem.SanitizeMol(candidate)
+            return candidate
+        except Exception:
+            continue
+    return None
+
 def protonate_ligand(mol: Chem.Mol) -> Chem.Mol:
     """
     Protonate RDMol at given pH using dimorphite
@@ -434,9 +482,27 @@ def protonate_ligand(mol: Chem.Mol) -> Chem.Mol:
 
         return protonated_h
 
-    except Exception as e:
-        print(e)
-        return None
+    except Exception as e1:
+
+        try:
+            charge = sum(a.GetFormalCharge() for a in mol.GetAtoms())
+            new_mol = _rebuild_from_coords(mol, charge)
+            mol_noh = Chem.RemoveAllHs(new_mol)
+            protonated = dl.run_with_mol_list([mol_noh], min_ph = PH, max_ph = PH,
+                    pka_precision=0.0, silent=True
+                )[0]
+
+            # Transfer 3D coordinates from original mol via substructure match
+            protonated = AllChem.AssignBondOrdersFromTemplate(protonated, mol_noh)
+
+            # Add explicit Hs with 3D coords
+            protonated_h = Chem.AddHs(protonated, addCoords=True)
+
+            return protonated_h
+
+        except Exception as e2:
+            print(e2)
+            return None
 
 # ---------------------------------------------------------------------------
 # Per-PDB driver
@@ -505,8 +571,8 @@ def main():
     # ensure the cache file exists BEFORE spawning workers
     build_ccd_atoms_bonds_cache()
 
-    #process_pdb('8y59_B')
-    Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
+    process_pdb('4d57_B')
+    #Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
 
 if __name__ == '__main__':
     main()

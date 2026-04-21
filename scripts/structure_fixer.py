@@ -634,15 +634,33 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     """
 
     fixer = PDBFixer(filename = f'{DATA_DIR}/pdb/raw/{basename}.pdb')
+
+    # Abort early if any chain contains an unknown residue (UNL = unknown ligand,
+    # UNK = unknown amino acid). These indicate incomplete ligand/residue
+    # identification in the source entry and can't be reliably processed.
+    for residue in fixer.topology.residues():
+        if residue.name in {'UNK', 'UNL'}:
+            print(
+                f'Unknown residue encountered: '
+                f'{basename} {residue.name} {residue.chain.id}{residue.id}'
+            )
+            return 'unknown_residue'
+
     fixer.findNonstandardResidues()
 
     # Build a list of residues per chain for neighbor lookup
     chain_residues = {}
-    chain_id_map = {}  # residue index -> chain id
+    chain_id_map = {}          # residue index -> chain id
+    chain_heavy_counts = {}    # chain index  -> # heavy atoms in VALID_BOND_ATOMS
     for chain in fixer.topology.chains():
         chain_residues[chain.index] = list(chain.residues())
+        heavy = 0
         for residue in chain.residues():
             chain_id_map[residue.index] = chain.id
+            for atom in residue.atoms():
+                if atom.element is not None and atom.element.symbol in VALID_BOND_ATOMS:
+                    heavy += 1
+        chain_heavy_counts[chain.index] = heavy
 
     # Apply custom substitutions and default-to-ALA fallback
     already_flagged = {r for r, _ in fixer.nonstandardResidues}
@@ -650,7 +668,7 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     # Remove any chain Z residues that PDBFixer auto-flagged
     fixer.nonstandardResidues = [
         (r, sub) for r, sub in fixer.nonstandardResidues
-        if chain_id_map.get(r.index) != "Z"
+        if chain_heavy_counts.get(r.chain.index, 0) > 100
     ]  
 
     for residue in fixer.topology.residues():
@@ -662,11 +680,22 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
             return
 
         if residue.name not in FIXED_RESIDUES and residue not in already_flagged:
+            if chain_heavy_counts.get(residue.chain.index, 0) <= 100:
+                continue
             if is_nonstandard_residue(residue, chain_residues):
                 replacement = CUSTOM_SUBSTITUTIONS.get(residue.name, "ALA")
                 fixer.nonstandardResidues.append((residue, replacement))
 
-    # Check each nonstandard residue for proximity to any ligand atom
+    # Drop small-chain nonstandard residues from consideration entirely.
+    # Chains with ≤100 heavy atoms are treated as peptide ligands/fragments
+    # where residues like ABA/SAR are legitimate building blocks, not
+    # modifications to be replaced with ALA.
+    fixer.nonstandardResidues = [
+        (r, sub) for r, sub in fixer.nonstandardResidues
+        if chain_heavy_counts.get(r.chain.index, 0) > 100
+    ]
+
+    # Check each remaining nonstandard residue for proximity to any ligand atom
     if fixer.nonstandardResidues:
         for residue, _replacement in fixer.nonstandardResidues:
             for atom in residue.atoms():
@@ -679,7 +708,7 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                         f'{basename} {residue.name} {residue.chain.id}{residue.id}'
                     )
                     return 'modified_in_shell'
-        # All nonstandard residues are far from ligands – safe to replace
+        # All remaining nonstandard residues are far from ligands – safe to replace
         fixer.replaceNonstandardResidues()
 
     fixer.findMissingResidues()
@@ -763,10 +792,6 @@ def main(pdb_id):
         overlap_resolver.resolve_overlaps(structure, overlaps_to_resolve)
         overlap_resolver.merge_bonded_chains(structure, bonds_to_add)
 
-        print(contact_info)
-        print(bonds_to_add)
-        print(overlaps_to_resolve)
-
         # 3.2: save cleaned mmCIF structure
         structure.make_mmcif_document().write_file(f'{DATA_DIR}/mmCIF/clean/{pdb_id}.cif')
 
@@ -799,6 +824,8 @@ def main(pdb_id):
                 elif fixer_status == 'missing_atoms_in_shell':
                     flags['has_missing_atoms_in_shell'] = True
                     flags['failure_reason'] = 'missing_atoms_in_shell'
+                elif fixer_status == 'unknown_residue':
+                    flags['failure_reason'] = 'unknown_residue'
                 elif fixer_status is None:
                     flags['failure_reason'] = 'null_elements_in_topology'
 
@@ -844,6 +871,7 @@ def wrapper(num_cores = 1):
 
         f.write(f"  --- Failure breakdown ---\n")
         f.write(f"  Null elements in topology     : {failure_counts.get('null_elements_in_topology', 0):>6}\n")
+        f.write(f"  Unknown residues (UNK/UNL)     : {failure_counts.get('unknown_residue', 0):>6}\n")
         f.write(f"  Modified residues in shell     : {failure_counts.get('modified_residues_in_shell', 0):>6}\n")
         f.write(f"  Missing atoms in shell         : {failure_counts.get('missing_atoms_in_shell', 0):>6}\n")
         f.write(f"  Uncaught exceptions            : {failure_counts.get('exception', 0):>6}\n\n")
@@ -856,5 +884,4 @@ def wrapper(num_cores = 1):
                 f.write(f"  {exc}\n")
 
 if __name__ == '__main__':
-    main('3odi')
-    #wrapper(num_cores = 48)
+    wrapper(num_cores = 48)
