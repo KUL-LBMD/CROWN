@@ -4,7 +4,7 @@ import functools
 import gemmi
 
 def normalize(s: str) -> str:
-    return s.strip('\'"').replace("\\", "")
+    return s.replace("\\", "")
 
 from src.config import DATA_DIR
 CCD_CACHE_PATH = os.path.join(

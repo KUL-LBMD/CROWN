@@ -1,11 +1,8 @@
 from src.config import DATA_DIR
 
 import os
-import subprocess
 import tempfile
 import numpy as np
-import pandas as pd
-from rdkit import Chem
 
 from scipy.spatial import KDTree
 from pdbfixer import PDBFixer
@@ -17,8 +14,10 @@ from openff.nagl_models import list_available_nagl_models
 from openff.nagl import GNNModel
 from openmm import CustomExternalForce, LangevinMiddleIntegrator, unit, Platform
 import logging
-from collections import defaultdict
 from joblib import Parallel, delayed
+
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+import functools
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -54,6 +53,21 @@ STANDARD_AMINO_ACIDS = {
 WATER_NAMES = {'HOH', 'WAT', 'TIP3', 'SOL', 'OPC'}
 METALLOCOFACTORS = {'HEM', 'SF4', 'MGD'}
 TEMPLATES_TO_REMOVE = {'AG1', 'Ce', 'Cr', 'CU1', 'EU3', 'FE2', 'TL1', 'Sm'}
+
+def timeout(seconds=300):
+    """Cross-platform timeout decorator"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(func, *args, **kwargs)
+                try:
+                    return future.result(timeout=seconds)
+                except FuturesTimeoutError:
+                    raise TimeoutError(f"Function exceeded {seconds}s timeout")
+        return wrapper
+    return decorator
 
 def get_file_length(path):
 
@@ -307,7 +321,7 @@ def prepare_amber(tmp_dir, pdb_path, special_residues):
 	logging.getLogger("openff").setLevel(logging.ERROR)
 
 	if special_residues:
-		Modeller.loadHydrogenDefinitions(f'{DATA_DIR}/CROWN/custom_xml/protonation/special_residues_amber.xml')
+		Modeller.loadHydrogenDefinitions(f'{DATA_DIR}/custom_xml/protonation/special_residues_amber.xml')
 		modeller = Modeller(fixer.topology, fixer.positions)
 		modeller.addHydrogens(pH=PH)
 		add_bonds(modeller.topology, modeller.positions, special_residues)
@@ -316,6 +330,7 @@ def prepare_amber(tmp_dir, pdb_path, special_residues):
 
 	return modeller
 
+@timeout(seconds=300)
 def refine_system(input_dir):
 	"""
 	Structure refinement workflow:
@@ -345,12 +360,12 @@ def refine_system(input_dir):
 			pdb_length = get_file_length(pdb_path)
 
 			forcefield_list = ['amber19/protein.ff19SB.xml', 'amber19/DNA.OL21.xml', 'amber19/opc3.xml',
-				f'{DATA_DIR}/CROWN/custom_xml/forcefield/HEM.xml', f'{DATA_DIR}/CROWN/custom_xml/forcefield/MGD.xml', f'{DATA_DIR}/CROWN/custom_xml/forcefield/SF4.xml']
+				f'{DATA_DIR}/custom_xml/forcefield/HEM.xml', f'{DATA_DIR}/custom_xml/forcefield/MGD.xml', f'{DATA_DIR}/custom_xml/forcefield/SF4.xml']
 
 			if pdb_length > 10:
 				rename_single_atom_residues(pdb_path)  # fix single-atom LIG/UNK/UNL residues
 				special_residues = find_cofactors(pdb_path)
-				modeller = prepare_amber(pdb_path, special_residues)
+				modeller = prepare_amber(tmp_dir, pdb_path, special_residues)
 			else:
 				modeller = Modeller(Topology(), [] * unit.nanometers)
 
@@ -362,10 +377,10 @@ def refine_system(input_dir):
 			ligand_molecules = []
 			ligand_entries = []  # (basename, Molecule, list of atom indices)
 
-			for ligand_file in sorted(os.listdir(input_dir)):
+			for ligand_file in sorted(os.listdir(f'{DATA_DIR}/systems/{input_dir}')):
 				if ligand_file.endswith('.sdf'):
 					basename = ligand_file.replace('.sdf', '')
-					ligand_mol = Molecule.from_file(f'{input_dir}/{ligand_file}', allow_undefined_stereo=True)
+					ligand_mol = Molecule.from_file(f'{DATA_DIR}/systems/{input_dir}/{ligand_file}', allow_undefined_stereo=True)
 					ligand_mol = assign_charges_with_fallback(ligand_mol)
 					ligand_molecules.append(ligand_mol)
 
@@ -512,11 +527,11 @@ def refine_system(input_dir):
 			handler.close()
 
 	except Exception as e:
-
+		print(f'{input_dir} - {e}')
 		logger.exception(f"Refinement failed for {input_dir}")
 		logger.removeHandler(handler)
 		handler.close()
 
 if __name__ == '__main__':
 	subdir_list = os.listdir(f'{DATA_DIR}/systems')
-	Parallel(n_jobs = 64, verbose = 10)(delayed(refine_system)(input_dir) for input_dir in subdir_list)
+	Parallel(n_jobs = 1, verbose = 10)(delayed(refine_system)(input_dir) for input_dir in subdir_list)

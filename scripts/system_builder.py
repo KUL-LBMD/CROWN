@@ -21,7 +21,7 @@ Usage:
 """
 
 from src.config import DATA_DIR
-from src.CROWN.ccd_cache import CCD_CACHE_PATH, normalize
+from src.CROWN.ccd_cache import CCD_CACHE_PATH
 from src.dimorphite_dl import dimorphite_dl as dl
 
 import numpy as np
@@ -45,11 +45,16 @@ import functools
 ALLOWED_ELEMENTS: set[str] = {"C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "B"}
 MAX_HEAVY_ATOMS: int = 100  # chain must have strictly fewer than this
 INTER_RESIDUE_CUTOFF: float = 2.2  # Å; no bond added beyond this distance
-SKIP_RESIDUES = {'HEM', 'MGD', 'SF4'}
+SKIP_RESIDUES = {'HEM', 'MGD', 'SF4', 'HOH'}
  
-# Cache keyed by residue name -> {"atoms": {name: element}, "bonds": [(a1, a2, order)]}
+# Cache keyed by residue name -> {
+#     "atoms": {atom_name: (element, formal_charge)},
+#     "bonds": [(a1, a2, order)],
+# }
+# NOTE: filename bumped to _v2 so older caches (without formal charges)
+# are rebuilt automatically on next run.
 CCD_ATOMS_BONDS_CACHE_PATH: str = os.path.join(
-    os.path.dirname(CCD_CACHE_PATH), "components_atoms_bonds.pkl"
+    os.path.dirname(CCD_CACHE_PATH), "components_atoms_bonds_v2.pkl"
 )
  
 BOND_ORDER_MAP: dict[str, Chem.BondType] = {
@@ -71,14 +76,48 @@ def _get_ccd_cache():
         _CCD_CACHE = build_ccd_atoms_bonds_cache()
     return _CCD_CACHE
 
+def normalize(s: str) -> str:
+    """Canonicalize a CCD atom name.
+
+    Removes stray backslashes and strips CIF-style surrounding quotes
+    (a matching pair of `"` or `'` wrapping the whole token). A trailing
+    prime — meaningful in nucleotide names like `O5'` — is preserved.
+    """
+    s = s.replace("\\", "")
+    if len(s) >= 2 and s[0] in ('"', "'") and s[0] == s[-1]:
+        s = s[1:-1]
+    return s
+
 # ---------------------------------------------------------------------------
 # CCD cache with bonds
 # ---------------------------------------------------------------------------
- 
+
+def _parse_ccd_charge(value: str) -> int:
+    """Parse a CCD ``_chem_comp_atom.charge`` field.
+
+    mmCIF uses '?' (unknown) and '.' (inapplicable) as sentinels; both
+    map to 0. Anything non-integer also falls back to 0 rather than
+    raising — a malformed charge shouldn't take down the whole cache
+    build.
+    """
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return 0
+
+
 def build_ccd_atoms_bonds_cache(force: bool = False) -> dict:
-    """Build {res_name: {'atoms': {atom_name: element}, 'bonds': [(a1, a2, order)]}}.
- 
-    Only heavy atoms are kept; bonds that reference excluded atoms are dropped.
+    """Build cache mapping residue names to atoms, formal charges, and bonds.
+
+    Returns:
+        {res_name: {
+            'atoms': {atom_name: (element, formal_charge)},
+            'bonds': [(a1, a2, order)],
+        }}
+
+    Only heavy atoms are kept; bonds referencing excluded atoms are
+    dropped. Formal charges are taken from ``_chem_comp_atom.charge``;
+    missing or unspecified values default to 0.
     """
     if not force and os.path.exists(CCD_ATOMS_BONDS_CACHE_PATH):
         with open(CCD_ATOMS_BONDS_CACHE_PATH, "rb") as f:
@@ -99,15 +138,29 @@ def build_ccd_atoms_bonds_cache(force: bool = False) -> dict:
         atom_table = block.find("_chem_comp_atom.", ["atom_id", "type_symbol"])
         if not atom_table:
             continue
- 
-        atoms: dict[str, str] = {}
+
+        # Charges live in a separate column that may be absent for some
+        # entries. Fetch it independently so a missing `charge` tag
+        # doesn't wipe out the atom list for that residue (gemmi's
+        # block.find returns an empty Table if ANY requested tag is
+        # missing).
+        charge_table = block.find("_chem_comp_atom.", ["atom_id", "charge"])
+        name_to_charge: dict[str, int] = {}
+        if charge_table:
+            for row in charge_table:
+                name_to_charge[normalize(row[0])] = _parse_ccd_charge(row[1])
+
+        atoms: dict[str, tuple[str, int]] = {}
         for row in atom_table:
             elem = row[1]
             if elem in ("H", "D"):
                 continue
             name = normalize(row[0])
             # Normalise element casing: "CL" -> "Cl", "BR" -> "Br"
-            atoms[name] = elem[0].upper() + elem[1:].lower() if len(elem) > 1 else elem
+            elem_cased = (
+                elem[0].upper() + elem[1:].lower() if len(elem) > 1 else elem
+            )
+            atoms[name] = (elem_cased, name_to_charge.get(name, 0))
  
         bonds: list[tuple[str, str, str]] = []
         bond_table = block.find(
@@ -115,8 +168,8 @@ def build_ccd_atoms_bonds_cache(force: bool = False) -> dict:
         )
         if bond_table:
             for row in bond_table:
-                a1 = normalize(row[0])
-                a2 = normalize(row[1])
+                a1 = normalize(gemmi.cif.as_string(row[0]))
+                a2 = normalize(gemmi.cif.as_string(row[1]))
                 if a1 in atoms and a2 in atoms:
                     bonds.append((a1, a2, row[2]))
  
@@ -143,13 +196,12 @@ def chain_passes_filter(chain: gemmi.Chain) -> tuple[bool, int, set[str]]:
             elem = atom.element.name
             if elem in ("H", "D"):
                 continue
-            count += 1
+            if elem in {'C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'B'}:
+                count += 1
+
             elements.add(elem)
 
-    passes = (
-        0 < count < MAX_HEAVY_ATOMS
-        and elements.issubset(ALLOWED_ELEMENTS)
-    )
+    passes = 0 < count < MAX_HEAVY_ATOMS
     return passes, count, elements
 
 # ---------------------------------------------------------------------------
@@ -180,6 +232,7 @@ def build_rdkit_mols_from_chain(
     """Build one RDKit ``Mol`` per connected fragment of a gemmi chain.
  
     * Intra-residue bonds come from the CCD's ``_chem_comp_bond`` table.
+    * Formal charges come from the CCD's ``_chem_comp_atom.charge`` field.
     * Consecutive residues are joined by a single bond between their two
       closest heavy atoms, but only if that minimum distance is below
       ``INTER_RESIDUE_CUTOFF``. A chain that remains in multiple connected
@@ -192,19 +245,33 @@ def build_rdkit_mols_from_chain(
  
     residues = list(chain)
  
-    # First pass: initialize atoms as point cloud
+    # First pass: initialize atoms as point cloud, applying CCD formal
+    # charges. Without this, residues with quaternary N+, phosphates,
+    # sulfonates, etc. produce impossible valences and blow up during
+    # sanitization / RemoveAllHs.
     for res_i, residue in enumerate(residues):
+        template = ccd_cache.get(residue.name)
+        template_atoms = template["atoms"] if template is not None else {}
+
         per_res: list[tuple[str, int, np.ndarray]] = []
         for atom in residue:
             elem = atom.element.name
             if elem in ("H", "D"):
                 continue
- 
+
             rdatom = Chem.Atom(elem)
+
+            atom_name = normalize(atom.name)
+            entry = template_atoms.get(atom_name)
+            if entry is not None:
+                _, charge = entry
+                if charge:
+                    rdatom.SetFormalCharge(charge)
+
             idx = rwmol.AddAtom(rdatom)
             positions.append((atom.pos.x, atom.pos.y, atom.pos.z))
             per_res.append(
-                (normalize(atom.name), idx, np.array([atom.pos.x, atom.pos.y, atom.pos.z]))
+                (atom_name, idx, np.array([atom.pos.x, atom.pos.y, atom.pos.z]))
             )
         residues_data.append(per_res)
  
@@ -215,6 +282,7 @@ def build_rdkit_mols_from_chain(
             return None
         
         name_to_idx = {name: idx for name, idx, _ in residues_data[res_i]}
+
         for a1, a2, order in template["bonds"]:
             i1 = name_to_idx.get(a1)
             i2 = name_to_idx.get(a2)
@@ -223,26 +291,28 @@ def build_rdkit_mols_from_chain(
             if rwmol.GetBondBetweenAtoms(i1, i2) is not None:
                 continue
             rwmol.AddBond(i1, i2, BOND_ORDER_MAP.get(order, Chem.BondType.SINGLE))
- 
+
     # -- Inter-residue bonds: single bond between the closest atom pair,
     #    but only if that minimum distance is below the cutoff. --
-    for res_i in range(len(residues_data) - 1):
-        atoms_i = residues_data[res_i]
-        atoms_j = residues_data[res_i + 1]
-        if not atoms_i or not atoms_j:
-            continue
-        coords_i = np.stack([p for _, _, p in atoms_i])
-        coords_j = np.stack([p for _, _, p in atoms_j])
-        d = np.linalg.norm(coords_i[:, None, :] - coords_j[None, :, :], axis=-1)
-        flat = int(np.argmin(d))
-        min_dist = float(d.flat[flat])
-        if min_dist > INTER_RESIDUE_CUTOFF:
-            continue
-        ii, jj = np.unravel_index(flat, d.shape) # Select i,j pair with closest distance
-        idx_i = atoms_i[ii][1] # Map back to RDKit indices
-        idx_j = atoms_j[jj][1]
-        if rwmol.GetBondBetweenAtoms(idx_i, idx_j) is None:
-            rwmol.AddBond(idx_i, idx_j, Chem.BondType.SINGLE)
+    for res_i in range(len(residues_data)):
+        for res_j in range(res_i, len(residues_data)):
+            if res_i != res_j:
+                atoms_i = residues_data[res_i]
+                atoms_j = residues_data[res_j]
+                if not atoms_i or not atoms_j:
+                    continue
+                coords_i = np.stack([p for _, _, p in atoms_i])
+                coords_j = np.stack([p for _, _, p in atoms_j])
+                d = np.linalg.norm(coords_i[:, None, :] - coords_j[None, :, :], axis=-1)
+                flat = int(np.argmin(d))
+                min_dist = float(d.flat[flat])
+                if min_dist > INTER_RESIDUE_CUTOFF:
+                    continue
+                ii, jj = np.unravel_index(flat, d.shape) # Select i,j pair with closest distance
+                idx_i = atoms_i[ii][1] # Map back to RDKit indices
+                idx_j = atoms_j[jj][1]
+                if rwmol.GetBondBetweenAtoms(idx_i, idx_j) is None:
+                    rwmol.AddBond(idx_i, idx_j, Chem.BondType.SINGLE)
  
     # -- Attach 3D conformer --
     conf = Chem.Conformer(rwmol.GetNumAtoms())
@@ -372,7 +442,8 @@ def main():
     # ensure the cache file exists BEFORE spawning workers
     build_ccd_atoms_bonds_cache()
 
-    Parallel(n_jobs = 32, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
+    #process_pdb('3zwe_F')
+    Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
 
 if __name__ == '__main__':
     main()

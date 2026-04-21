@@ -59,7 +59,16 @@ SHELL_RADIUS = 6.0
 #-----------------------
 
 def normalize(s: str) -> str:
-    return s.strip('\'"').replace("\\", "")
+    """Canonicalize a CCD atom name.
+
+    Removes stray backslashes and strips CIF-style surrounding quotes
+    (a matching pair of `"` or `'` wrapping the whole token). A trailing
+    prime — meaningful in nucleotide names like `O5'` — is preserved.
+    """
+    s = s.replace("\\", "")
+    if len(s) >= 2 and s[0] in ('"', "'") and s[0] == s[-1]:
+        s = s[1:-1]
+    return s
 
 def _remove_chain(model: gemmi.Model, name: str) -> None:
     for i in range(len(model) - 1, -1, -1):
