@@ -35,6 +35,7 @@ from rdkit.Geometry import Point3D
 from typing import Iterable
 import shutil
 from joblib import Parallel, delayed
+import tempfile
 import functools
 import subprocess
 
@@ -375,6 +376,8 @@ def build_rdkit_mols_from_chain(
                 idx_i = atoms_i[ii][1] # Map back to RDKit indices
                 idx_j = atoms_j[jj][1]
                 if rwmol.GetBondBetweenAtoms(idx_i, idx_j) is None:
+                    _reconcile_for_inter_residue_bond(rwmol, idx_i)
+                    _reconcile_for_inter_residue_bond(rwmol, idx_j)
                     rwmol.AddBond(idx_i, idx_j, Chem.BondType.SINGLE)
  
     # -- Attach 3D conformer --
@@ -413,96 +416,143 @@ def _remove_chains_by_name(model: gemmi.Model, chain_names: Iterable[str]) -> No
 # Protonate ligands
 #----------------------------------------------------------------------------
 
-def _rebuild_from_coords(mol: Chem.Mol, charge: int) -> Chem.Mol | None:
-    """Re-derive bonds for ``mol`` from its 3D coordinates.
+def _reconcile_for_inter_residue_bond(rwmol: Chem.RWMol, atom_idx: int) -> None:
+    """Reshuffle bonds around ``atom_idx`` so it can accept one extra single bond.
 
-    Discards all existing bonds and runs xyz2mol-style perception
-    (``rdDetermineBonds.DetermineBonds``) to recover connectivity and
-    bond orders from atom positions alone. ``charge`` should be the
-    total formal charge expected on the system — usually the sum of
-    the per-atom charges already set from the CCD.
+    Targets the common case where a CCD template marks an oxygen as =X (P, S,
+    C, N), but in the real structure that oxygen is bridging. If the central
+    atom X has another neighbour O⁻ (or N⁻), the double bond is migrated
+    there — preserving X's valence while neutralising the charged oxygen.
+    If no such acceptor exists, the double bond is simply demoted to single,
+    which at least lets sanitisation proceed.
+    """
+    atom = rwmol.GetAtomWithIdx(atom_idx)
+    if atom.GetSymbol() != "O":
+        return  # extend here if you hit non-O cases in your dataset
 
-    Returns a new sanitized Mol, or None if bond perception fails.
-    Known weak spots: metals, radicals, some unusual heterocycles.
+    dbl = next(
+        (b for b in atom.GetBonds() if b.GetBondType() == Chem.BondType.DOUBLE),
+        None,
+    )
+    if dbl is None:
+        return
+
+    central = dbl.GetOtherAtom(atom)
+
+    # Look for a singly-bonded, negatively-charged neighbour we can promote.
+    for b in central.GetBonds():
+        if b.GetIdx() == dbl.GetIdx():
+            continue
+        if b.GetBondType() != Chem.BondType.SINGLE:
+            continue
+        nbr = b.GetOtherAtom(central)
+        degree = sum(1 for x in nbr.GetNeighbors() if x.GetAtomicNum() != 1)
+        if nbr.GetSymbol() in ("O", "N") and degree == 1:
+            dbl.SetBondType(Chem.BondType.SINGLE)
+            b.SetBondType(Chem.BondType.DOUBLE)
+            return
+
+    # Fallback: demote without migration. Central atom's valence drops by 1;
+    # annotate with a formal charge so RDKit's valence model is consistent.
+    dbl.SetBondType(Chem.BondType.SINGLE)
+    # P, S: went from valence 5/6 to 4/5 — both allowed, no charge needed.
+    # C: went from 4 to 3 — assign a radical? Usually better to leave and
+    # let sanitisation fail loudly so you can inspect these by hand.
+
+def strip_mol(mol: Chem.Mol) -> Chem.Mol:
+    """
+    Strip hydrogens from molecule.
+    Avoid valence errors by fixing attempts with OpenBabel
     """
 
-    print('You are here')
-    writer = Chem.SDWriter('test.sdf')
-    writer.write(mol)
-    writer.close()
-    return None
-
-    if mol.GetNumConformers() == 0:
-        return None
-
-    # Build a clean atoms-only Mol with the same 3D coordinates.
-    # DetermineBonds doesn't need pre-existing bonds and is cleaner
-    # when it doesn't have to ignore them.
-    new = Chem.RWMol()
-    for atom in mol.GetAtoms():
-        new.AddAtom(Chem.Atom(atom.GetAtomicNum()))
-    src_conf = mol.GetConformer()
-    new_conf = Chem.Conformer(new.GetNumAtoms())
-    for i in range(new.GetNumAtoms()):
-        new_conf.SetAtomPosition(i, src_conf.GetAtomPosition(i))
-    new.AddConformer(new_conf, assignId=True)
-    rebuilt = new.GetMol()
-
-    # Try the CCD-summed charge first, then nearby integers.  Partial
-    # models and edge-case protonation states can throw the charge off
-    # by ±1 or so, and DetermineBonds is strict about it.
-    for delta in (0, -1, 1, -2, 2, -3, 3):
-        candidate = Chem.Mol(rebuilt)  # fresh copy per attempt
+    with tempfile.TemporaryDirectory() as tmp_dir:
         try:
-            rdDetermineBonds.DetermineBonds(candidate, charge=charge + delta)
-            Chem.SanitizeMol(candidate)
-            return candidate
-        except Exception:
-            continue
-    return None
+            mol_noh = Chem.RemoveAllHs(mol)
+            return mol_noh
+
+        except Exception as e1:
+
+            try:
+
+                print(e1)
+
+                writer = Chem.SDWriter(f'{tmp_dir}/mol.sdf')
+                writer.write(mol)
+                writer.close()
+
+                # SDF
+                subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-osdf', '-O', f'{tmp_dir}/temp.sdf'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
+                mol = Chem.SDMolSupplier(f'{tmp_dir}/temp.sdf', removeHs=True)[0]
+                mol_noh = Chem.RemoveAllHs(mol)
+                return mol_noh
+
+            except Exception as e2:
+                try:
+
+                    print(e2)
+
+                    subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-opdb', '-O', f'{tmp_dir}/temp.pdb'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
+                    mol = Chem.MolFromPDBFile(f'{tmp_dir}/temp.pdb', removeHs = False, sanitize = False)
+                    if mol is None:
+                        subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-oxyz', '-O', f'{tmp_dir}/temp.xyz'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
+                        subprocess.run(['obabel', '-ixyz', f'{tmp_dir}/temp.xyz', '-osdf', '-O', f'{tmp_dir}/temp.sdf'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
+                        mol = Chem.SDMolSupplier(f'{tmp_dir}/temp.sdf', removeHs=True)[0]
+
+                    # FIX OXYGEN FORMAL CHARGES, used to be problem in NAD+ that was deprotonated.
+                    for atom in mol.GetAtoms():
+                        if atom.GetAtomicNum() != 8:         # skip non-O
+                            continue
+                        # count DOUBLE bonds; Double-bonded O should have formal charge = 0
+                        n_double = sum(1 for b in atom.GetBonds() if b.GetBondType() == Chem.BondType.DOUBLE)
+                        if n_double:
+                            atom.SetFormalCharge(0)
+                            continue
+
+                        # Single-bonded O attached to C should have formal charge = -1
+                        num_neighbors = atom.GetDegree()
+                        if num_neighbors == 1:
+                            neighbor = atom.GetNeighbors()[0]
+                            bond = mol.GetBondBetweenAtoms(atom.GetIdx(), neighbor.GetIdx())
+                            if (neighbor.GetAtomicNum() in (6, 15, 16) and bond.GetBondType() == Chem.BondType.SINGLE and atom.GetFormalCharge() == 0):
+                                atom.SetFormalCharge(-1)
+
+                    formal_charge = Chem.GetFormalCharge(mol)
+
+                    for charge in [formal_charge] + [formal_charge + d for d in (1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6, 7, -7, 8, -8)]:
+                        try:
+                            rdDetermineBonds.DetermineBonds(mol, charge=charge, covFactor=1.15, useVdw=True) #covFactor was set to 1.15 as BCP would throw errors due to carbons being too close.
+                            break
+                        except ValueError:
+                            continue
+
+                    mol_noh = Chem.RemoveAllHs(mol)
+                    return mol_noh
+                
+                except Exception as e3:
+                    print(e3)
+                    return None
 
 def protonate_ligand(mol: Chem.Mol) -> Chem.Mol:
     """
     Protonate RDMol at given pH using dimorphite
     """
 
-    try:
-
-        # Strip existing Hs, protonate at target pH
-        mol_noh = Chem.RemoveAllHs(mol)
-        protonated = dl.run_with_mol_list([mol_noh], min_ph = PH, max_ph = PH,
-		pka_precision=0.0, silent=True
+    # Strip existing Hs, protonate at target pH
+    mol_noh = strip_mol(mol)
+    if mol_noh is None:
+        return None
+    
+    protonated = dl.run_with_mol_list([mol_noh], min_ph = PH, max_ph = PH,
+	        pka_precision=0.0, silent=True
 	    )[0]
 
-        # Transfer 3D coordinates from original mol via substructure match
-        protonated = AllChem.AssignBondOrdersFromTemplate(protonated, mol_noh)
+    # Transfer 3D coordinates from original mol via substructure match
+    protonated = AllChem.AssignBondOrdersFromTemplate(protonated, mol_noh)
 
-        # Add explicit Hs with 3D coords
-        protonated_h = Chem.AddHs(protonated, addCoords=True)
+    # Add explicit Hs with 3D coords
+    protonated_h = Chem.AddHs(protonated, addCoords=True)
 
-        return protonated_h
-
-    except Exception as e1:
-
-        try:
-            charge = sum(a.GetFormalCharge() for a in mol.GetAtoms())
-            new_mol = _rebuild_from_coords(mol, charge)
-            mol_noh = Chem.RemoveAllHs(new_mol)
-            protonated = dl.run_with_mol_list([mol_noh], min_ph = PH, max_ph = PH,
-                    pka_precision=0.0, silent=True
-                )[0]
-
-            # Transfer 3D coordinates from original mol via substructure match
-            protonated = AllChem.AssignBondOrdersFromTemplate(protonated, mol_noh)
-
-            # Add explicit Hs with 3D coords
-            protonated_h = Chem.AddHs(protonated, addCoords=True)
-
-            return protonated_h
-
-        except Exception as e2:
-            print(e2)
-            return None
+    return protonated_h
 
 # ---------------------------------------------------------------------------
 # Per-PDB driver

@@ -260,7 +260,6 @@ def select_conformer(structure: gemmi.Structure):
                 # Delete losing atoms in reverse to preserve indices
                 for i in range(len(residue) - 1, -1, -1):
                     if residue[i].altloc in loser_altlocs:
-                        print(f'Removing from {residue.name}')
                         del residue[i]
 
                 # Clear altloc labels on remaining atoms
@@ -507,12 +506,15 @@ def detect_unresolved_ligand_atoms(structure: gemmi.Structure, chain_id: str):
             print(f'Warning: CCD code {residue.name} not found in cache')
             return False
 
-        observed = {
-            normalize(atom.name)
-            for atom in residue
-            if atom.element.name not in {'H', 'D'}
-        }
+        heavy_atoms = [atom for atom in residue if atom.element.name not in {'H', 'D'}]
 
+        # Check occupancy for all heavy atoms
+        zero_occ = [atom.name for atom in heavy_atoms if atom.occ <= 0.00]
+        if zero_occ:
+            print(f'Warning: zero occupancy heavy atoms in {residue.name}: {zero_occ}')
+            return False
+
+        observed = {normalize(atom.name) for atom in residue if atom.element.name not in {'H', 'D'}}
         absent = expected - observed
         absent = [x[0] for x in absent]
 
