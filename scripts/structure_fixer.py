@@ -533,31 +533,32 @@ def build_pdb(structure: gemmi.Structure, chain_id):
     """
     1. Applies symmetry expansion
     2. Selects only neighboring chains
-    3. Renames chains and updates SEQRES
-    4. Writes as PDB
+    3. Removes residues from symmetry-mates with heavy-atom clashes (< 1 Å)
+       against already-placed atoms
+    4. Renames chains and updates SEQRES
+    5. Writes as PDB
     """
+    CLASH_CUTOFF = 1.0  # Å, heavy-atom contact threshold
 
     model = structure[0]
     cell = structure.cell
     sg = structure.find_spacegroup()
     target_chain = model[chain_id]
 
-    # Create KDTree for fast contact checks
-    target_coords = []
-    for res in target_chain:
-        for atom in res:
-            if not atom.element.name in {'H', 'D'}:
-                target_coords.append([atom.pos.x, atom.pos.y, atom.pos.z])
-
+    # Target heavy-atom coords → seed of the "existing" set
+    target_coords = [
+        [atom.pos.x, atom.pos.y, atom.pos.z]
+        for res in target_chain
+        for atom in res
+        if atom.element.name not in {'H', 'D'}
+    ]
     target_tree = KDTree(np.array(target_coords))
 
-    # Symmetry expansion and neighbor selection
-    neighbors = []  # list of (transformed_chain, source_chain_name)
-
+    # Symmetry expansion and neighbor selection (unchanged)
+    neighbors = []
     for chain in model:
         if sg is not None:
             for op in sg.operations():
-                # Create 3x3x3 unit cell box
                 for du, dv, dw in product(range(-1, 2), repeat=3):
                     is_self = (
                         op.triplet() == "x,y,z"
@@ -566,11 +567,9 @@ def build_pdb(structure: gemmi.Structure, chain_id):
                     )
                     if is_self:
                         continue
-
                     transformed = _apply_sym_op(structure, chain, op, du, dv, dw)
                     if _has_contact(transformed, target_tree):
                         neighbors.append((transformed, chain.name))
-
         else:
             if chain.name != chain_id:
                 if _has_contact(chain, target_tree):
@@ -580,7 +579,6 @@ def build_pdb(structure: gemmi.Structure, chain_id):
     new_structure = gemmi.Structure()
     new_structure.cell = cell
     new_structure.spacegroup_hm = 'P 1'
-
     new_model = gemmi.Model(0)
 
     # Target chain → Z
@@ -588,33 +586,68 @@ def build_pdb(structure: gemmi.Structure, chain_id):
     target_clone.name = "Z"
     new_model.add_chain(target_clone)
 
-    # Neighbors → A, B, C, ...
-    available = list("ABCDEFGHIJKLMNOPQRSTUVWXYabcdefghijklmnopqrstuvwxyz0123456789")
-    source_map = {"Z": chain_id}  # new_name -> source_chain_name
+    # Running set of heavy-atom coords already placed in the output
+    existing_coords = list(target_coords)
 
-    for i, (nchain, src_name) in enumerate(neighbors):
-        new_name = available[i]
+    # Neighbors → A, B, C, … with residue-level clash filtering
+    available = list("ABCDEFGHIJKLMNOPQRSTUVWXYabcdefghijklmnopqrstuvwxyz0123456789")
+    source_map = {"Z": chain_id}
+    out_idx = 0
+
+    for nchain, src_name in neighbors:
+        # KDTree over everything placed so far
+        existing_tree = KDTree(np.array(existing_coords))
+
+        # Flag clashing residues by index
+        clashing = set()
+        for i, res in enumerate(nchain):
+            res_coords = np.array([
+                [a.pos.x, a.pos.y, a.pos.z]
+                for a in res if a.element.name not in {'H', 'D'}
+            ])
+            if res_coords.size == 0:
+                continue
+            dists, _ = existing_tree.query(res_coords, k=1)
+            if np.any(dists < CLASH_CUTOFF):
+                clashing.add(i)
+
+        # Rebuild the chain without clashing residues
+        if clashing:
+            filtered = gemmi.Chain(nchain.name)
+            for i, res in enumerate(nchain):
+                if i not in clashing:
+                    filtered.add_residue(res)
+            nchain = filtered
+
+        # Skip if nothing survives
+        if len(nchain) == 0:
+            continue
+
+        # Accept the chain
+        new_name = available[out_idx]
+        out_idx += 1
         nchain.name = new_name
         new_model.add_chain(nchain)
         source_map[new_name] = src_name
 
+        # Extend the existing-atoms pool with this chain's heavy atoms
+        for res in nchain:
+            for a in res:
+                if a.element.name not in {'H', 'D'}:
+                    existing_coords.append([a.pos.x, a.pos.y, a.pos.z])
+
     new_structure.add_model(new_model)
 
-    # ── Rebuild entities for SEQRES ──
-
-    # Build lookup: source chain name -> Entity in original structure
+    # ── Rebuild entities for SEQRES (unchanged) ──
     _setup_source_entities(structure)
     src_entity_for_chain = _map_chains_to_entities(structure)
-
     for new_chain in new_structure[0]:
         src_chain_name = source_map.get(new_chain.name)
         if src_chain_name is None:
             continue
-
         src_entity = src_entity_for_chain.get(src_chain_name)
         if src_entity is None or src_entity.entity_type != gemmi.EntityType.Polymer:
             continue
-
         ent = gemmi.Entity(new_chain.name)
         ent.entity_type = src_entity.entity_type
         ent.polymer_type = src_entity.polymer_type
@@ -622,9 +655,7 @@ def build_pdb(structure: gemmi.Structure, chain_id):
         ent.subchains = [new_chain.name]
         new_structure.entities.append(ent)
 
-    # Assign subchains so entities connect to chains during PDB writing
     _assign_subchain_ids(new_structure)
-
     return new_structure
 
 def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarray):
@@ -823,6 +854,10 @@ def main(pdb_id):
                 print('Building structure')
 
                 new_structure = build_pdb(structure, chain_id)
+                contact_info, bonds_to_add, overlaps_to_resolve = overlap_resolver.detect_contacts(new_structure)
+                print(contact_info)
+                print(bonds_to_add)
+                overlap_resolver.merge_bonded_chains(structure, bonds_to_add)
                 basename = f'{pdb_id}_{chain_id}'
                 new_structure.write_pdb(f'{DATA_DIR}/pdb/raw/{basename}.pdb')
 
@@ -896,5 +931,5 @@ def wrapper(num_cores = 1):
                 f.write(f"  {exc}\n")
 
 if __name__ == '__main__':
-    main('4d57')
+    main('1md2')
     #wrapper(num_cores = 48)

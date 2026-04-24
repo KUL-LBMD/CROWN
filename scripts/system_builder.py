@@ -498,33 +498,6 @@ def strip_mol(mol: Chem.Mol) -> Chem.Mol:
                         subprocess.run(['obabel', '-ixyz', f'{tmp_dir}/temp.xyz', '-osdf', '-O', f'{tmp_dir}/temp.sdf'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
                         mol = Chem.SDMolSupplier(f'{tmp_dir}/temp.sdf', removeHs=True)[0]
 
-                    # FIX OXYGEN FORMAL CHARGES, used to be problem in NAD+ that was deprotonated.
-                    for atom in mol.GetAtoms():
-                        if atom.GetAtomicNum() != 8:         # skip non-O
-                            continue
-                        # count DOUBLE bonds; Double-bonded O should have formal charge = 0
-                        n_double = sum(1 for b in atom.GetBonds() if b.GetBondType() == Chem.BondType.DOUBLE)
-                        if n_double:
-                            atom.SetFormalCharge(0)
-                            continue
-
-                        # Single-bonded O attached to C should have formal charge = -1
-                        num_neighbors = atom.GetDegree()
-                        if num_neighbors == 1:
-                            neighbor = atom.GetNeighbors()[0]
-                            bond = mol.GetBondBetweenAtoms(atom.GetIdx(), neighbor.GetIdx())
-                            if (neighbor.GetAtomicNum() in (6, 15, 16) and bond.GetBondType() == Chem.BondType.SINGLE and atom.GetFormalCharge() == 0):
-                                atom.SetFormalCharge(-1)
-
-                    formal_charge = Chem.GetFormalCharge(mol)
-
-                    for charge in [formal_charge] + [formal_charge + d for d in (1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6, 7, -7, 8, -8)]:
-                        try:
-                            rdDetermineBonds.DetermineBonds(mol, charge=charge, covFactor=1.15, useVdw=True) #covFactor was set to 1.15 as BCP would throw errors due to carbons being too close.
-                            break
-                        except ValueError:
-                            continue
-
                     mol_noh = Chem.RemoveAllHs(mol)
                     return mol_noh
                 
@@ -621,7 +594,8 @@ def main():
     # ensure the cache file exists BEFORE spawning workers
     build_ccd_atoms_bonds_cache()
 
-    Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
+    process_pdb('3odi_B')
+    #Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
 
 if __name__ == '__main__':
     main()

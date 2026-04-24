@@ -28,6 +28,9 @@ CONTACT_RADIUS = 4
 SHELL_RADIUS = 6
 
 ### Helper functions ###
+def _safe_mean(vals):
+    return np.mean(vals) if len(vals) else np.nan
+
 def _heavy_atom_count(res: gemmi.Residue) -> int:
     return sum(1 for atom in res if not atom.element.name in {'H', 'D'})
 
@@ -217,7 +220,7 @@ def parse_pdb(file_path):
 ### Core functions
 #-----------------
 
-def calculate_rsr_rscc(basename: str, res_info: Dict[Tuple[str, str, str], Tuple[float, float]], structure: gemmi.Structure, chain_id: str):
+def calculate_rsr_rscc(basename: str, res_info: Dict[Tuple[str, str, str], Tuple[float, float]], structure: gemmi.Structure, chain_id: str, ligand_coords: np.ndarray):
 	"""
 	Calculate mean RSR and RSCC of given residues
 
@@ -236,44 +239,36 @@ def calculate_rsr_rscc(basename: str, res_info: Dict[Tuple[str, str, str], Tuple
 	# Step 1: get (chain_id, res_name, res_num) keys for ligand and pocket
 	# --- Ligand: all residues in chain_id with >2 heavy atoms ---
 	ligand_keys = set()
-	ligand_coords = []
-
-	for chain in model:
-		if chain.name != chain_id:
-			continue
-		for res in chain:
-			if _heavy_atom_count(res) <= 2:
-				continue
-			key = (chain_id, res.name, str(res.seqid))
-			ligand_keys.add(key)
-			for atom in res:
-				if not atom.is_hydrogen():
-					ligand_coords.append(atom.pos)
-
-	if not ligand_coords:
-		print(f'{basename} - No ligand coords')
-		empty_set = set()
-		return np.nan, np.nan, np.nan, np.nan, empty_set
-	
-	# --- Pocket: residues on ANY other chain within SHELL_RADIUS ---
-	ns = gemmi.NeighborSearch(model, structure.cell, SHELL_RADIUS).populate()
 	pocket_keys = set()
 	chain_set = set()
 
+	# --- Ligand: check within 0.1 tolerance
+	ns = gemmi.NeighborSearch(model, structure.cell, SHELL_RADIUS).populate()
+	for pos in ligand_coords:
+		for mark in ns.find_atoms(pos, '\0', radius = 0.1):
+			cra = mark.to_cra(model)
+			if _heavy_atom_count(cra.residue) <= 2:
+				continue
+			ligand_keys.add((cra.chain.name, cra.residue.name, str(cra.residue.seqid)))
+
+	# --- Pocket: residues on ANY other chain within SHELL_RADIUS ---
 	for pos in ligand_coords:
 		for mark in ns.find_atoms(pos, '\0', radius = SHELL_RADIUS):
 			cra = mark.to_cra(model)
-			if cra.chain.name == chain_id:
-				continue  # skip ligand chain itself
 			if _heavy_atom_count(cra.residue) <= 2:
 				continue
 			pocket_keys.add((cra.chain.name, cra.residue.name, str(cra.residue.seqid)))
 			chain_set.add(cra.chain.name)
 
-	ligand_rsr = np.mean([res_info[x][0] if x in res_info else np.nan for x in ligand_keys])
-	ligand_rscc = np.mean([res_info[x][1] if x in res_info else np.nan for x in ligand_keys])
-	pocket_rsr = np.mean([res_info[x][0] if x in res_info else np.nan for x in pocket_keys])
-	pocket_rscc = np.mean([res_info[x][1] if x in res_info else np.nan for x in pocket_keys])
+	if not ligand_keys:
+		print(f'{basename} - No ligand keys')
+	if not pocket_keys:
+		print(f'{basename} - No pocket keys')
+
+	ligand_rsr = _safe_mean([res_info[x][0] if x in res_info else np.nan for x in ligand_keys])
+	ligand_rscc = _safe_mean([res_info[x][1] if x in res_info else np.nan for x in ligand_keys])
+	pocket_rsr = _safe_mean([res_info[x][0] if x in res_info else np.nan for x in pocket_keys])
+	pocket_rscc = _safe_mean([res_info[x][1] if x in res_info else np.nan for x in pocket_keys])
 
 	return ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc, chain_set
 
@@ -329,21 +324,19 @@ def process_group(pdb_id: str, group):
 
 	for filename in group:
 
+		file_path = f'{DATA_DIR}/pdb/fixed/{filename}'
+		prot_coords, lig_coords, prot_radii, lig_radii, lig_name = parse_pdb(file_path)
+
+		if len(prot_coords.shape) != 2 or len(lig_coords.shape) != 2:
+			continue
+
 		# Check 1: RSR and RSCC
-		chain_id = filename.split('.')[0].split('_')[1]
-		ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc, chain_set = calculate_rsr_rscc(filename, res_info, clean_structure, chain_id)
+		ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc, chain_set = calculate_rsr_rscc(filename, res_info, clean_structure, lig_coords)
 
 		if np.isnan([ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc]).any():
 			continue
 
 		if ligand_rsr > 0.3 or pocket_rsr > 0.3 or ligand_rscc < 0.8 or pocket_rscc < 0.8:
-			continue
-
-		file_path = f'{DATA_DIR}/pdb/fixed/{filename}'
-		prot_coords, lig_coords, prot_radii, lig_radii, lig_name = parse_pdb(file_path)
-
-		if len(prot_coords.shape) != 2 or len(lig_coords.shape) != 2:
-			print(f'Please check {filename}')
 			continue
 
 		# Check 2: more than 10 close contacts?
@@ -356,8 +349,6 @@ def process_group(pdb_id: str, group):
 
 		# Check 3: Delta-SAS ratio
 		sas_ratio = calculate_delta_sas(prot_coords, lig_coords, prot_radii, lig_radii)
-		if np.isnan(sas_ratio):
-			print(f'{filename} - SAS {sas_ratio}')
 		if sas_ratio < 0.4:
 			continue
 
