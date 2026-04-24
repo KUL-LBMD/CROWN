@@ -217,7 +217,7 @@ def parse_pdb(file_path):
 ### Core functions
 #-----------------
 
-def calculate_rsr_rscc(res_info: Dict[Tuple[str, str, str], Tuple[float, float]], structure: gemmi.Structure, chain_id: str):
+def calculate_rsr_rscc(basename: str, res_info: Dict[Tuple[str, str, str], Tuple[float, float]], structure: gemmi.Structure, chain_id: str):
 	"""
 	Calculate mean RSR and RSCC of given residues
 
@@ -251,11 +251,14 @@ def calculate_rsr_rscc(res_info: Dict[Tuple[str, str, str], Tuple[float, float]]
 					ligand_coords.append(atom.pos)
 
 	if not ligand_coords:
-		return np.nan, np.nan, np.nan, np.nan
+		print(f'{basename} - No ligand coords')
+		empty_set = set()
+		return np.nan, np.nan, np.nan, np.nan, empty_set
 	
 	# --- Pocket: residues on ANY other chain within SHELL_RADIUS ---
 	ns = gemmi.NeighborSearch(model, structure.cell, SHELL_RADIUS).populate()
 	pocket_keys = set()
+	chain_set = set()
 
 	for pos in ligand_coords:
 		for mark in ns.find_atoms(pos, '\0', radius = SHELL_RADIUS):
@@ -265,13 +268,14 @@ def calculate_rsr_rscc(res_info: Dict[Tuple[str, str, str], Tuple[float, float]]
 			if _heavy_atom_count(cra.residue) <= 2:
 				continue
 			pocket_keys.add((cra.chain.name, cra.residue.name, str(cra.residue.seqid)))
+			chain_set.add(cra.chain.name)
 
 	ligand_rsr = np.mean([res_info[x][0] if x in res_info else np.nan for x in ligand_keys])
 	ligand_rscc = np.mean([res_info[x][1] if x in res_info else np.nan for x in ligand_keys])
 	pocket_rsr = np.mean([res_info[x][0] if x in res_info else np.nan for x in pocket_keys])
 	pocket_rscc = np.mean([res_info[x][1] if x in res_info else np.nan for x in pocket_keys])
 
-	return ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc
+	return ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc, chain_set
 
 def calculate_delta_sas(prot_coords, lig_coords, prot_radii, lig_radii):
 	"""
@@ -327,7 +331,7 @@ def process_group(pdb_id: str, group):
 
 		# Check 1: RSR and RSCC
 		chain_id = filename.split('.')[0].split('_')[1]
-		ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc = calculate_rsr_rscc(res_info, clean_structure, chain_id)
+		ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc, chain_set = calculate_rsr_rscc(filename, res_info, clean_structure, chain_id)
 
 		if np.isnan([ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc]).any():
 			continue
@@ -339,6 +343,7 @@ def process_group(pdb_id: str, group):
 		prot_coords, lig_coords, prot_radii, lig_radii, lig_name = parse_pdb(file_path)
 
 		if len(prot_coords.shape) != 2 or len(lig_coords.shape) != 2:
+			print(f'Please check {filename}')
 			continue
 
 		# Check 2: more than 10 close contacts?
@@ -351,6 +356,8 @@ def process_group(pdb_id: str, group):
 
 		# Check 3: Delta-SAS ratio
 		sas_ratio = calculate_delta_sas(prot_coords, lig_coords, prot_radii, lig_radii)
+		if np.isnan(sas_ratio):
+			print(f'{filename} - SAS {sas_ratio}')
 		if sas_ratio < 0.4:
 			continue
 
@@ -370,7 +377,7 @@ def process_group(pdb_id: str, group):
 
 		if not redundant:
 			entry_results = {'filename': filename[:-4], 'lig_name': lig_name, 'sas_ratio': sas_ratio, 'ligand_rsr': ligand_rsr, 'ligand_rscc': ligand_rscc,
-					'pocket_rsr': pocket_rsr, 'pocket_rscc': pocket_rscc}
+					'pocket_rsr': pocket_rsr, 'pocket_rscc': pocket_rscc, 'chain_set': '-'.join(chain_set)}
 			results.append(entry_results)
 
 	return results

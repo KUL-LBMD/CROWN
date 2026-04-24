@@ -621,8 +621,7 @@ def main():
     # ensure the cache file exists BEFORE spawning workers
     build_ccd_atoms_bonds_cache()
 
-    process_pdb('4d57_B')
-    #Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
+    Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
 
 if __name__ == '__main__':
     main()
