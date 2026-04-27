@@ -823,6 +823,11 @@ def main(pdb_id):
         # Step 3: resolve steric clashes and missing bonds between chains
         overlap_resolver = OverlapResolver()
         contact_info, bonds_to_add, overlaps_to_resolve = overlap_resolver.detect_contacts(structure)
+
+        print(contact_info)
+        print(bonds_to_add)
+        print(overlaps_to_resolve)
+
         overlap_resolver.resolve_overlaps(structure, overlaps_to_resolve)
         overlap_resolver.merge_bonded_chains(structure, bonds_to_add)
 
@@ -920,4 +925,5 @@ def wrapper(num_cores = 1):
                 f.write(f"  {exc}\n")
 
 if __name__ == '__main__':
-    wrapper(num_cores = 100)
+    #wrapper(num_cores = 100)
+    main('6li7')
