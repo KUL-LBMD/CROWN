@@ -304,30 +304,30 @@ def build_rdkit_mols_from_chain(
     # sulfonates, etc. produce impossible valences and blow up during
     # sanitization / RemoveAllHs.
     for res_i, residue in enumerate(residues):
-
+ 
         observed_atoms = {normalize(a.name) for a in residue if a.element.name not in ("H", "D")}
         resolved = resolve_ccd_code(residue.name, observed_atoms, ccd_cache, prefix_index)
         template = ccd_cache.get(resolved) if resolved else None
         template_atoms = template["atoms"] if template is not None else {}
-
+ 
         if template is None:
             return None
-
+ 
         per_res: list[tuple[str, int, np.ndarray]] = []
         for atom in residue:
             elem = atom.element.name
             if elem in ("H", "D"):
                 continue
-
+ 
             rdatom = Chem.Atom(elem)
-
+ 
             atom_name = normalize(atom.name)
             entry = template_atoms.get(atom_name)
             if entry is not None:
                 _, charge = entry
                 if charge:
                     rdatom.SetFormalCharge(charge)
-
+ 
             idx = rwmol.AddAtom(rdatom)
             positions.append((atom.pos.x, atom.pos.y, atom.pos.z))
             per_res.append(
@@ -341,12 +341,12 @@ def build_rdkit_mols_from_chain(
         observed_atoms = {normalize(a.name) for a in residue if a.element.name not in ("H", "D")}
         resolved = resolve_ccd_code(residue.name, observed_atoms, ccd_cache, prefix_index)
         template = ccd_cache.get(resolved) if resolved else None
-
+ 
         if template is None:
             return None
         
         name_to_idx = {name: idx for name, idx, _ in residues_data[res_i]}
-
+ 
         for a1, a2, order in template["bonds"]:
             i1 = name_to_idx.get(a1)
             i2 = name_to_idx.get(a2)
@@ -355,9 +355,24 @@ def build_rdkit_mols_from_chain(
             if rwmol.GetBondBetweenAtoms(i1, i2) is not None:
                 continue
             rwmol.AddBond(i1, i2, BOND_ORDER_MAP.get(order, Chem.BondType.SINGLE))
-
+ 
     # -- Inter-residue bonds: single bond between the closest atom pair,
     #    but only if that minimum distance is below the cutoff. --
+ 
+    # Per-residue name -> rdkit-idx map, used below to locate OXT atoms.
+    name_to_idx_per_res = [
+        {name: idx for name, idx, _ in res_data}
+        for res_data in residues_data
+    ]
+    # OXT is a CCD-template artefact of a linear C-terminus. When a
+    # residue is caught up in a new inter-residue bond -- the obvious
+    # case being a cyclic peptide, where the CCD template still supplies
+    # an OXT on the residue that closes the ring -- that OXT would push
+    # the peptide C to valence 5 once the amide bond is added. Tag such
+    # OXTs during the loop and delete them at the end so the indices we
+    # use to add bonds remain valid.
+    atoms_to_remove: set[int] = set()
+ 
     for res_i in range(len(residues_data)):
         for res_j in range(res_i, len(residues_data)):
             if res_i != res_j:
@@ -376,9 +391,27 @@ def build_rdkit_mols_from_chain(
                 idx_i = atoms_i[ii][1] # Map back to RDKit indices
                 idx_j = atoms_j[jj][1]
                 if rwmol.GetBondBetweenAtoms(idx_i, idx_j) is None:
+                    # Tag OXT for removal if it's bonded to whichever
+                    # endpoint is the peptide C. For a linear C-terminus
+                    # the C isn't an endpoint of any inter-residue bond,
+                    # so OXT there is left alone.
+                    for res_idx, endpoint_idx in ((res_i, idx_i), (res_j, idx_j)):
+                        oxt = name_to_idx_per_res[res_idx].get("OXT")
+                        if oxt is None:
+                            continue
+                        if rwmol.GetBondBetweenAtoms(endpoint_idx, oxt) is not None:
+                            atoms_to_remove.add(oxt)
+ 
                     _reconcile_for_inter_residue_bond(rwmol, idx_i)
                     _reconcile_for_inter_residue_bond(rwmol, idx_j)
                     rwmol.AddBond(idx_i, idx_j, Chem.BondType.SINGLE)
+ 
+    # Drop tagged OXT atoms. Descending order keeps lower indices valid;
+    # `positions` is kept in lock-step so the conformer attached below
+    # still matches.
+    for idx in sorted(atoms_to_remove, reverse=True):
+        rwmol.RemoveAtom(idx)
+        positions.pop(idx)
  
     # -- Attach 3D conformer --
     conf = Chem.Conformer(rwmol.GetNumAtoms())
@@ -594,8 +627,8 @@ def main():
     # ensure the cache file exists BEFORE spawning workers
     build_ccd_atoms_bonds_cache()
 
-    process_pdb('3odi_B')
-    #Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
+    #process_pdb('3odi_B')
+    Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
 
 if __name__ == '__main__':
     main()

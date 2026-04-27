@@ -516,11 +516,7 @@ def detect_unresolved_ligand_atoms(structure: gemmi.Structure, chain_id: str):
 
         observed = {normalize(atom.name) for atom in residue if atom.element.name not in {'H', 'D'}}
 
-        print(expected)
-        print(observed)
-
         absent = expected - observed
-        print(absent)
         absent = [x[0] for x in absent]
 
         if absent:
@@ -841,22 +837,15 @@ def main(pdb_id):
         for chain_id in ligand_chains:
 
             # 5.1: Any unresolved ligand atoms?
-            print('Checking resolved atoms')
             fully_resolved = detect_unresolved_ligand_atoms(structure, chain_id)
             if fully_resolved:
-
-                print('Passed')
 
                 # 5.2: convert to PDB
                 ccd_codes = [res.name for res in structure[0][chain_id]]
                 lig_name = '-'.join(ccd_codes)
 
-                print('Building structure')
-
                 new_structure = build_pdb(structure, chain_id)
                 contact_info, bonds_to_add, overlaps_to_resolve = overlap_resolver.detect_contacts(new_structure)
-                print(contact_info)
-                print(bonds_to_add)
                 overlap_resolver.merge_bonded_chains(structure, bonds_to_add)
                 basename = f'{pdb_id}_{chain_id}'
                 new_structure.write_pdb(f'{DATA_DIR}/pdb/raw/{basename}.pdb')
@@ -931,5 +920,4 @@ def wrapper(num_cores = 1):
                 f.write(f"  {exc}\n")
 
 if __name__ == '__main__':
-    main('1md2')
-    #wrapper(num_cores = 48)
+    wrapper(num_cores = 100)

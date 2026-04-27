@@ -220,7 +220,7 @@ def parse_pdb(file_path):
 ### Core functions
 #-----------------
 
-def calculate_rsr_rscc(basename: str, res_info: Dict[Tuple[str, str, str], Tuple[float, float]], structure: gemmi.Structure, chain_id: str, ligand_coords: np.ndarray):
+def calculate_rsr_rscc(basename: str, res_info: Dict[Tuple[str, str, str], Tuple[float, float]], structure: gemmi.Structure, ligand_coords: np.ndarray):
 	"""
 	Calculate mean RSR and RSCC of given residues
 
@@ -245,7 +245,8 @@ def calculate_rsr_rscc(basename: str, res_info: Dict[Tuple[str, str, str], Tuple
 	# --- Ligand: check within 0.1 tolerance
 	ns = gemmi.NeighborSearch(model, structure.cell, SHELL_RADIUS).populate()
 	for pos in ligand_coords:
-		for mark in ns.find_atoms(pos, '\0', radius = 0.1):
+		gemmi_pos = gemmi.Position(*pos)
+		for mark in ns.find_atoms(gemmi_pos, '\0', radius = 0.1):
 			cra = mark.to_cra(model)
 			if _heavy_atom_count(cra.residue) <= 2:
 				continue
@@ -253,7 +254,8 @@ def calculate_rsr_rscc(basename: str, res_info: Dict[Tuple[str, str, str], Tuple
 
 	# --- Pocket: residues on ANY other chain within SHELL_RADIUS ---
 	for pos in ligand_coords:
-		for mark in ns.find_atoms(pos, '\0', radius = SHELL_RADIUS):
+		gemmi_pos = gemmi.Position(*pos)
+		for mark in ns.find_atoms(gemmi_pos, '\0', radius = SHELL_RADIUS):
 			cra = mark.to_cra(model)
 			if _heavy_atom_count(cra.residue) <= 2:
 				continue
