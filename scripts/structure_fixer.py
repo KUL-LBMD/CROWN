@@ -5,7 +5,7 @@ from src.CROWN.utils import COMMON_ARTIFACTS, remove_artifacts_and_fix_quotes
 # Main structural biology dependencies
 import gemmi
 from pdbfixer import PDBFixer
-from openmm.app import PDBFile
+from openmm.app import PDBFile, Modeller
 
 # Basic resources
 import numpy as np
@@ -41,19 +41,22 @@ STANDARD_AA = {'ALA', 'ARG', 'ASH', 'ASN', 'ASP', 'CYM', 'CYS', 'CYX', 'GLH', 'G
                'ACE', 'NALA', 'NARG', 'NASN', 'NASP', 'NCYS', 'NCYX', 'NGLN', 'NGLU', 'NGLY', 'NHID', 'NHIE', 'NHIP', 'NILE', 'NLEU', 'NLYS', 'NMET', 
                'NPHE', 'NPRO', 'NSER', 'NTHR', 'NTRP', 'NTYR', 'NVAL', 'HSD', 'HSE', 'HSP'}
 
-VALID_BOND_ATOMS = {'C', 'N', 'O', 'S', 'P', 'B'}
+STANDARD_BASES = {'A', 'U', 'G', 'C', 'DA', 'DT', 'DG', 'DC'}
 
+VALID_BOND_ATOMS = {'C', 'N', 'O', 'S', 'P', 'B'}
 
 WATER_NAMES = {"HOH", "WAT", "DOD", "H2O", "TIP3", "SPC", "TIP"}
 
 METALLOCOFACTORS = {'HEM', 'SF4', 'MGD'}
 
-FIXED_RESIDUES = STANDARD_AA | METALLOCOFACTORS | {'LIG', 'HOH', 'WAT', 'TIP3', 'SOL', 'OPC', 'ACE', 'NME'}
+FIXED_RESIDUES = STANDARD_AA | STANDARD_BASES | METALLOCOFACTORS | WATER_NAMES | {'ACE', 'NME'}
 CUSTOM_SUBSTITUTIONS = {'SEC': 'CYS', '0A8': 'CYS', 'MSE': 'MET'}
 
 CLASH_RADIUS = 1.8
 CHAIN_RADIUS = 4.0
 SHELL_RADIUS = 6.0
+
+MAX_TERMINAL_EXTENSION = 5
 
 ### Helper functions ###
 #-----------------------
@@ -680,12 +683,58 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
             )
             return 'unknown_residue'
 
+    # ── Branched residues merged into polymer chains ──
+    # After merge_bonded_chains, glycans (NAG/BMA/MAN/…) and other covalent
+    # attachments end up on the protein chain. Detect them as non-FIXED
+    # residues lacking a CA backbone atom inside a long (>100 heavy atom)
+    # chain. Drop them if they sit outside the binding-site shell; abort if
+    # any of their atoms fall inside it.
+    chain_heavy_counts = {}
+    chain_id_map = {}
+    for chain in fixer.topology.chains():
+        heavy = 0
+        for residue in chain.residues():
+            chain_id_map[residue.index] = chain.id
+            for atom in residue.atoms():
+                if atom.element is not None and atom.element.symbol in VALID_BOND_ATOMS:
+                    heavy += 1
+        chain_heavy_counts[chain.index] = heavy
+
+    branched = []
+    for residue in fixer.topology.residues():
+        if chain_id_map.get(residue.index) == "Z":
+            continue
+        if residue.name in FIXED_RESIDUES:
+            continue
+        if chain_heavy_counts.get(residue.chain.index, 0) <= 100:
+            continue
+        atom_names = {atom.name for atom in residue.atoms()}
+        if 'CA' not in atom_names:
+            branched.append(residue)
+
+    for residue in branched:
+        for atom in residue.atoms():
+            pos = fixer.positions[atom.index]
+            atom_coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
+            if np.linalg.norm(ligand_coords - atom_coord, axis=1).min() < SHELL_RADIUS:
+                print(
+                    f'Branched residue in shell: '
+                    f'{basename} {residue.name} {residue.chain.id}{residue.id}'
+                )
+                return 'branched_in_shell'
+
+    if branched:
+        modeller = Modeller(fixer.topology, fixer.positions)
+        modeller.delete(branched)
+        fixer.topology = modeller.topology
+        fixer.positions = modeller.positions
+
     fixer.findNonstandardResidues()
 
-    # Build a list of residues per chain for neighbor lookup
+    # ── topology may have changed; rebuild the per-chain bookkeeping ──
     chain_residues = {}
-    chain_id_map = {}          # residue index -> chain id
-    chain_heavy_counts = {}    # chain index  -> # heavy atoms in VALID_BOND_ATOMS
+    chain_id_map = {}
+    chain_heavy_counts = {}
     for chain in fixer.topology.chains():
         chain_residues[chain.index] = list(chain.residues())
         heavy = 0
@@ -753,13 +802,31 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
 
     fixer.missingResidues = {
         key: val for key, val in fixer.missingResidues.items()
-        if chain_idx_to_id.get(key[0]) != "Z"
+        if chain_idx_to_id.get(key[0]) != "Z" and chain_heavy_counts.get(key[0], 0) > 100
     }
+
+    # Cap terminal extensions at 5 residues. PDBFixer's missingResidues key is
+    # (chain_index, insertion_position), where the position is an index *into
+    # the existing residues* — 0 means insert before the first, len(chain) means
+    # append after the last. Internal gaps are left untouched.
+    chain_res_counts = {idx: len(res_list) for idx, res_list in chain_residues.items()}
+
+    for (chain_idx, ins_pos), residues in list(fixer.missingResidues.items()):
+        if len(residues) <= MAX_TERMINAL_EXTENSION:
+            continue
+        if ins_pos == 0:
+            # N-terminal: list runs from SEQRES start toward the existing chain,
+            # so the residues nearest the resolved structure are at the end.
+            fixer.missingResidues[(chain_idx, ins_pos)] = residues[-MAX_TERMINAL_EXTENSION:]
+        elif ins_pos == chain_res_counts.get(chain_idx, 0):
+            # C-terminal: list runs from existing chain outward, keep the head.
+            fixer.missingResidues[(chain_idx, ins_pos)] = residues[:MAX_TERMINAL_EXTENSION]
+        # else: internal gap, leave it alone
 
     # Exclude chain Z from missing atoms
     fixer.missingAtoms = {
         residue: atoms for residue, atoms in fixer.missingAtoms.items()
-        if chain_id_map.get(residue.index) != "Z"
+        if chain_id_map.get(residue.index) != "Z" and chain_heavy_counts.get(residue.chain.index, 0) > 100
     }
 
     # Check if any remaining residue with missing atoms is near the ligand
@@ -808,6 +875,7 @@ def main(pdb_id):
     flags = {
             'has_missing_atoms_in_shell': False,
             'has_modified_residues_in_shell': False,
+            'has_branched_residues_in_shell': False,
             'failure_reason': None,  # None means success
         }
 
@@ -824,14 +892,12 @@ def main(pdb_id):
         overlap_resolver = OverlapResolver()
         contact_info, bonds_to_add, overlaps_to_resolve = overlap_resolver.detect_contacts(structure)
 
-        print(contact_info)
-        print(bonds_to_add)
-        print(overlaps_to_resolve)
-
         overlap_resolver.resolve_overlaps(structure, overlaps_to_resolve)
         overlap_resolver.merge_bonded_chains(structure, bonds_to_add)
 
         # 3.2: save cleaned mmCIF structure
+        _assign_subchain_ids(structure)
+        structure.setup_entities()      # rebuild entity table to match new subchains
         structure.make_mmcif_document().write_file(f'{DATA_DIR}/mmCIF/clean/{pdb_id}.cif')
 
         # Step 4: select possible ligand chains
@@ -851,9 +917,13 @@ def main(pdb_id):
 
                 new_structure = build_pdb(structure, chain_id)
                 contact_info, bonds_to_add, overlaps_to_resolve = overlap_resolver.detect_contacts(new_structure)
-                overlap_resolver.merge_bonded_chains(structure, bonds_to_add)
+                overlap_resolver.merge_bonded_chains(new_structure, bonds_to_add)
                 basename = f'{pdb_id}_{chain_id}'
-                new_structure.write_pdb(f'{DATA_DIR}/pdb/raw/{basename}.pdb')
+
+                opts = gemmi.PdbWriteOptions()
+                opts.ter_ignores_type = True   # only emit TER when the chain name actually changes
+
+                new_structure.write_pdb(f'{DATA_DIR}/pdb/raw/{basename}.pdb', opts)
 
                 # 5.3 missing and nonstand residues with PDBFixer
                 update_element_positions(f'{DATA_DIR}/pdb/raw/{basename}.pdb')
@@ -867,6 +937,9 @@ def main(pdb_id):
                     flags['failure_reason'] = 'missing_atoms_in_shell'
                 elif fixer_status == 'unknown_residue':
                     flags['failure_reason'] = 'unknown_residue'
+                elif fixer_status == 'branched_in_shell':
+                    flags['has_branched_residues_in_shell'] = True
+                    flags['failure_reason'] = 'branched_residues_in_shell'
                 elif fixer_status is None:
                     flags['failure_reason'] = 'null_elements_in_topology'
 
@@ -915,6 +988,7 @@ def wrapper(num_cores = 1):
         f.write(f"  Unknown residues (UNK/UNL)     : {failure_counts.get('unknown_residue', 0):>6}\n")
         f.write(f"  Modified residues in shell     : {failure_counts.get('modified_residues_in_shell', 0):>6}\n")
         f.write(f"  Missing atoms in shell         : {failure_counts.get('missing_atoms_in_shell', 0):>6}\n")
+        f.write(f"  Branched residues in shell     : {failure_counts.get('branched_residues_in_shell', 0):>6}\n")
         f.write(f"  Uncaught exceptions            : {failure_counts.get('exception', 0):>6}\n\n")
 
         # Log individual exceptions for debugging
@@ -925,5 +999,5 @@ def wrapper(num_cores = 1):
                 f.write(f"  {exc}\n")
 
 if __name__ == '__main__':
-    #wrapper(num_cores = 100)
-    main('6li7')
+    wrapper(num_cores = 100)
+    #main('6li7')
