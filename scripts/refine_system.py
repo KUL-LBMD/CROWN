@@ -29,6 +29,7 @@ os.environ['OPENBLAS_NUM_THREADS'] = '1'
 os.environ['NUMEXPR_NUM_THREADS'] = '1'
 os.environ["OPENMM_DEFAULT_PLATFORM"] = "CPU"
 os.environ["OPENMM_CPU_THREADS"] = "1"
+os.environ["PYTHONWARNINGS"] = "ignore::FutureWarning"
 
 # ============================================================================
 # DEFAULT PARAMETERS
@@ -534,4 +535,4 @@ def refine_system(input_dir):
 
 if __name__ == '__main__':
 	subdir_list = os.listdir(f'{DATA_DIR}/systems')
-	Parallel(n_jobs = 1, verbose = 10)(delayed(refine_system)(input_dir) for input_dir in subdir_list)
+	Parallel(n_jobs = 100, verbose = 10)(delayed(refine_system)(input_dir) for input_dir in subdir_list)

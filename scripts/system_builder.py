@@ -405,7 +405,7 @@ def build_rdkit_mols_from_chain(
                     _reconcile_for_inter_residue_bond(rwmol, idx_i)
                     _reconcile_for_inter_residue_bond(rwmol, idx_j)
                     rwmol.AddBond(idx_i, idx_j, Chem.BondType.SINGLE)
- 
+
     # Drop tagged OXT atoms. Descending order keeps lower indices valid;
     # `positions` is kept in lock-step so the conformer attached below
     # still matches.
@@ -420,6 +420,17 @@ def build_rdkit_mols_from_chain(
     rwmol.AddConformer(conf, assignId=True)
  
     mol = rwmol.GetMol()
+
+    # Fix for boron
+    for atom in mol.GetAtoms():
+        if atom.GetSymbol() == "B" and atom.GetDegree() == 4 and atom.GetFormalCharge() == 0:
+            atom.SetFormalCharge(-1)
+            # find the neighbor N that should carry +1 (the dative donor)
+            for nbr in atom.GetNeighbors():
+                if nbr.GetSymbol() == "N" and nbr.GetFormalCharge() == 0:
+                    nbr.SetFormalCharge(+1)
+                    break
+
     # Split into connected components. sanitizeFrags=False so we can apply
     # our own fallback logic per fragment.
     frags = list(Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=False))
@@ -627,7 +638,7 @@ def main():
     # ensure the cache file exists BEFORE spawning workers
     build_ccd_atoms_bonds_cache()
 
-    #process_pdb('3odi_B')
+    #process_pdb('5cg1_C')
     Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
 
 if __name__ == '__main__':
