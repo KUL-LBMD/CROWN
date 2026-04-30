@@ -227,6 +227,35 @@ class ResidueContact:
     contact_count: int
     atom_pairs: List[Tuple]
 
+def _topological_sort(nodes: Set[str], edges: List[Tuple[str, str]]) -> List[str]:
+    """Kahn's algorithm with alphabetical tie-breaking."""
+    import bisect
+    from collections import defaultdict
+
+    in_degree = {n: 0 for n in nodes}
+    adj = defaultdict(list)
+    for u, v in edges:
+        if u in in_degree and v in in_degree:
+            adj[u].append(v)
+            in_degree[v] += 1
+
+    available = sorted(n for n in nodes if in_degree[n] == 0)
+    result: List[str] = []
+    while available:
+        node = available.pop(0)
+        result.append(node)
+        for nxt in sorted(adj[node]):
+            in_degree[nxt] -= 1
+            if in_degree[nxt] == 0:
+                bisect.insort(available, nxt)
+
+    # cycles / leftovers — append alphabetically so we never crash
+    if len(result) != len(nodes):
+        for n in sorted(nodes):
+            if n not in result:
+                result.append(n)
+    return result
+
 ### Core functions ###
 #----------------
 
@@ -376,17 +405,83 @@ class OverlapResolver:
                 else:
                     _remove_chain(model, chain1_id)
 
-    def merge_bonded_chains(self, structure: gemmi.Structure, bonds: List[str]):
+    def merge_bonded_chains(self, structure: gemmi.Structure, bonds: List[str], contact_info: Dict[ResidueContact]):
         """
-        Merge chains and rename to alphabetically first chain
-        """
+        Merge chains and rename to alphabetically first chain.
 
+        Protein chains are merged in C→N order (the chain whose C-terminus forms
+        the peptide bond comes first). DNA chains are merged in O3'→P order.
+        Branch chains are appended at the end of the merged chain.
+        """
         model = structure[0]
 
-        # Build connected components
-        chain_sets = [set(bond.split(",")) for bond in bonds]
-        merged = True
+        # ------------------------------------------------------------------
+        # 1. Classify every chain we'll touch
+        # ------------------------------------------------------------------
+        chain_class: Dict[str, str] = {}
 
+        def classify(chain_id: str) -> str:
+            chain = model[chain_id]
+            res_names = [residue.name for residue in chain]
+            standard_aa = sum(1 for r in res_names if r in STANDARD_AA)
+            standard_bases = sum(1 for r in res_names if r in STANDARD_BASES)
+            if standard_aa > 5:
+                return 'protein'
+            if standard_bases > 4:
+                return 'dna'
+            return 'branch'
+
+        # ------------------------------------------------------------------
+        # 2. First pass: validate bonds + record directed backbone edges
+        #    Edge (u, v)  means  u's residues come BEFORE v's residues.
+        # ------------------------------------------------------------------
+        cleaned_bonds: List[str] = []
+        backbone_edges: List[Tuple[str, str]] = []
+
+        for bond in bonds:
+            chain1_id, chain2_id = bond.split(',')
+            pair_key = tuple(sorted([chain1_id, chain2_id]))
+            pair_contact_info = contact_info[pair_key]
+
+            for cid in (chain1_id, chain2_id):
+                if cid not in chain_class:
+                    chain_class[cid] = classify(cid)
+
+            chain_classes = {chain_class[chain1_id], chain_class[chain2_id]}
+
+            # atom_pair entries are (chain_id, residue_seqid, atom_name)
+            atom1, atom2 = pair_contact_info.atom_pairs[0]
+            a1_chain, a1_name = atom1[0], atom1[2]
+            a2_chain, a2_name = atom2[0], atom2[2]
+            atom_names_sorted = sorted([a1_name, a2_name])
+
+            if 'branch' in chain_classes:
+                # branch contacts are kept; no direction (they go to the end)
+                cleaned_bonds.append(bond)
+
+            elif chain_classes == {'protein'}:
+                if atom_names_sorted == ['C', 'N']:
+                    cleaned_bonds.append(bond)
+                    # C-side chain comes before N-side chain
+                    if a1_name == 'C':
+                        backbone_edges.append((a1_chain, a2_chain))
+                    else:
+                        backbone_edges.append((a2_chain, a1_chain))
+
+            elif chain_classes == {'dna'}:
+                if atom_names_sorted == ["O3'", 'P']:
+                    cleaned_bonds.append(bond)
+                    # 3'-side chain comes before 5'-side chain
+                    if a1_name == "O3'":
+                        backbone_edges.append((a1_chain, a2_chain))
+                    else:
+                        backbone_edges.append((a2_chain, a1_chain))
+
+        # ------------------------------------------------------------------
+        # 3. Connected components from the *validated* bonds
+        # ------------------------------------------------------------------
+        chain_sets = [set(b.split(",")) for b in cleaned_bonds]
+        merged = True
         while merged:
             merged = False
             new_sets = []
@@ -400,42 +495,41 @@ class OverlapResolver:
                 new_sets.append(current)
             chain_sets = new_sets
 
-        chain_lists = [sorted(list(x)) for x in chain_sets]
+        # ------------------------------------------------------------------
+        # 4. Per component: backbone (topo-sorted) + branches (alphabetical)
+        # ------------------------------------------------------------------
+        for chain_set in chain_sets:
+            backbone_chains = {c for c in chain_set if chain_class.get(c) != 'branch'}
+            branch_chains   = sorted(c for c in chain_set if chain_class.get(c) == 'branch')
 
-        # Merge chain groups
-        for chain_list in chain_lists:
-            new_chain_name = chain_list[0]
+            component_edges = [(u, v) for (u, v) in backbone_edges
+                            if u in backbone_chains and v in backbone_chains]
 
-            all_residues = []          # list of (gemmi.Atom, seqid_tuple)
-            residue_counts = []
+            ordered_backbone = _topological_sort(backbone_chains, component_edges)
+            ordered_chains   = ordered_backbone + branch_chains
+
+            new_chain_name = sorted(chain_set)[0]
+
+            all_residues = []
             chains_to_remove = []
-
-            for chain_id in chain_list:
+            for chain_id in ordered_chains:
                 if not _has_chain(model, chain_id):
                     continue
-
                 chain = model[chain_id]
-                res_count = 0
                 for residue in chain:
-                    res_count += 1
-                    all_residues.append((residue.clone(), residue.seqid.num))
-
-                residue_counts.append(res_count)
+                    all_residues.append(residue.clone())
                 chains_to_remove.append(chain_id)
 
             if not all_residues:
-                return
-            
-            # Remove old chains
+                continue  # was `return` in the original — that aborted later components
+
             for chain_id in chains_to_remove:
                 _remove_chain(model, chain_id)
 
-            # Build merged chain with preserved residues
             new_chain = gemmi.Chain(new_chain_name)
-            for new_index, (residue, _) in enumerate(all_residues, start=1):
+            for new_index, residue in enumerate(all_residues, start=1):
                 residue.seqid = gemmi.SeqId(str(new_index))
                 new_chain.add_residue(residue)
-
             model.add_chain(new_chain)
 
 def select_ligand_chains(structure: gemmi.Structure):
@@ -709,7 +803,7 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
         if chain_heavy_counts.get(residue.chain.index, 0) <= 100:
             continue
         atom_names = {atom.name for atom in residue.atoms()}
-        if 'CA' not in atom_names:
+        if not {'N', 'CA', 'C', 'O'}.issubset(atom_names):
             branched.append(residue)
 
     for residue in branched:
