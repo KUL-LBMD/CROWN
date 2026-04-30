@@ -51,6 +51,8 @@ STANDARD_AMINO_ACIDS = {
     'ACE', 'NME'
 }
 
+STANDARD_BASES = {'A', 'U', 'G', 'C', 'DA', 'DT', 'DG', 'DC'}
+
 WATER_NAMES = {'HOH', 'WAT', 'TIP3', 'SOL', 'OPC'}
 METALLOCOFACTORS = {'HEM', 'SF4', 'MGD'}
 TEMPLATES_TO_REMOVE = {'AG1', 'Ce', 'Cr', 'CU1', 'EU3', 'FE2', 'TL1', 'Sm'}
@@ -89,6 +91,18 @@ def clean_ff(ff):
 		ff._templateSignatures[sig] = [t for t in templates if not t.name in TEMPLATES_TO_REMOVE]
 
 	return ff
+
+def _clean_file(pdb_path):
+	lines_to_keep = []
+	with open(pdb_path, 'r') as f:
+		for line in f:
+			line = line.strip()
+			parts = line.split()
+			if parts[0] != 'HET':
+				lines_to_keep.append(line)
+
+	with open(pdb_path, 'w') as f:
+		f.write('\n'.join(lines_to_keep))
 
 def rename_single_atom_residues(pdb_path):
     pdb = PDBFile(pdb_path)
@@ -301,6 +315,52 @@ def add_seqres_with_caps(input_pdb: str, output_pdb: str):
 			if not line.startswith('SEQRES'):
 				f_out.write(line)
 
+def cap_dna_termini(input_pdb: str, output_pdb: str):
+    """
+    Rename DNA terminal residues to match Amber OL21 templates and strip
+    the 5'-terminal phosphate so it matches the 5'-OH form of DX5.
+
+    - First DNA residue of each chain: DX -> DX5  (5'-OH)
+    - Last DNA residue of each chain:  DX -> DX3  (3'-OH)
+    - Single-residue DNA chain:        DX -> DXN  (both ends capped)
+
+    PDBFixer.findMissingAtoms()/addMissingHydrogens() will then add HO5'
+    and HO3' to satisfy the renamed templates.
+    """
+    pdb = PDBFile(input_pdb)
+    modeller = Modeller(pdb.topology, pdb.positions)
+
+    atoms_to_remove = []
+
+    for chain in modeller.topology.chains():
+        dna_residues = [r for r in chain.residues() if r.name in STANDARD_BASES]
+        if not dna_residues:
+            continue
+
+        if len(dna_residues) == 1:
+            # Single-nucleotide chain: both termini on one residue
+            only = dna_residues[0]
+            only.name = only.name + 'N'
+            for atom in only.atoms():
+                if atom.name in {'P', 'OP1', 'OP2', 'OP3', 'O1P', 'O2P', 'O3P'}:
+                    atoms_to_remove.append(atom)
+            continue
+
+        # 5' terminus: rename + strip dangling phosphate
+        first = dna_residues[0]
+        first.name = first.name + '5'
+        for atom in first.atoms():
+            if atom.name in {'P', 'OP1', 'OP2', 'OP3', 'O1P', 'O2P', 'O3P'}:
+                atoms_to_remove.append(atom)
+
+        # 3' terminus: No action needed
+
+    if atoms_to_remove:
+        modeller.delete(atoms_to_remove)
+
+    with open(output_pdb, 'w') as f:
+        PDBFile.writeFile(modeller.topology, modeller.positions, f)
+
 def prepare_amber(tmp_dir, pdb_path, special_residues):
 	"""
 	Prepare modeller and force field list for special AMBER residues
@@ -308,12 +368,16 @@ def prepare_amber(tmp_dir, pdb_path, special_residues):
 
 	# Add SEQRES with caps
 	basename = pdb_path.split('/')[-1][:-4]
-	tmp_path = f'{tmp_dir}/{basename}_seqres.pdb'
-	add_seqres_with_caps(pdb_path, tmp_path)
+	seqres_path = f'{tmp_dir}/{basename}_seqres.pdb'
+	add_seqres_with_caps(pdb_path, seqres_path)
+
+	# DNA terminal renaming + 5'-phosphate stripping
+	capped_path = f'{tmp_dir}/{basename}_dnacap.pdb'
+	cap_dna_termini(seqres_path, capped_path)
 
 	Modeller.loadHydrogenDefinitions(f'{DATA_DIR}/custom_xml/protonation/special_residues_amber.xml')
-	fixer = PDBFixer(tmp_path)
 
+	fixer = PDBFixer(capped_path)
 	fixer.findMissingResidues()
 	fixer.findMissingAtoms()
 	fixer.addMissingAtoms()
@@ -364,6 +428,7 @@ def refine_system(input_dir):
 				f'{DATA_DIR}/custom_xml/forcefield/HEM.xml', f'{DATA_DIR}/custom_xml/forcefield/MGD.xml', f'{DATA_DIR}/custom_xml/forcefield/SF4.xml']
 
 			if pdb_length > 10:
+				_clean_file(pdb_path)
 				rename_single_atom_residues(pdb_path)  # fix single-atom LIG/UNK/UNL residues
 				special_residues = find_cofactors(pdb_path)
 				modeller = prepare_amber(tmp_dir, pdb_path, special_residues)
@@ -535,4 +600,5 @@ def refine_system(input_dir):
 
 if __name__ == '__main__':
 	subdir_list = os.listdir(f'{DATA_DIR}/systems')
-	Parallel(n_jobs = 100, verbose = 10)(delayed(refine_system)(input_dir) for input_dir in subdir_list)
+	refine_system('3d2v_I')
+	#Parallel(n_jobs = 100, verbose = 10)(delayed(refine_system)(input_dir) for input_dir in subdir_list)
