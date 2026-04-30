@@ -405,7 +405,7 @@ class OverlapResolver:
                 else:
                     _remove_chain(model, chain1_id)
 
-    def merge_bonded_chains(self, structure: gemmi.Structure, bonds: List[str], contact_info: Dict[ResidueContact]):
+    def merge_bonded_chains(self, structure: gemmi.Structure, bonds: List[str], contact_info):
         """
         Merge chains and rename to alphabetically first chain.
 
@@ -477,6 +477,10 @@ class OverlapResolver:
                     else:
                         backbone_edges.append((a2_chain, a1_chain))
 
+            # Protein-DNA: alarm!
+            else:
+                return 'alarm'
+
         # ------------------------------------------------------------------
         # 3. Connected components from the *validated* bonds
         # ------------------------------------------------------------------
@@ -531,6 +535,8 @@ class OverlapResolver:
                 residue.seqid = gemmi.SeqId(str(new_index))
                 new_chain.add_residue(residue)
             model.add_chain(new_chain)
+
+        return 'ok'
 
 def select_ligand_chains(structure: gemmi.Structure):
     """
@@ -987,7 +993,9 @@ def main(pdb_id):
         contact_info, bonds_to_add, overlaps_to_resolve = overlap_resolver.detect_contacts(structure)
 
         overlap_resolver.resolve_overlaps(structure, overlaps_to_resolve)
-        overlap_resolver.merge_bonded_chains(structure, bonds_to_add)
+        message = overlap_resolver.merge_bonded_chains(structure, bonds_to_add, contact_info)
+        if message == 'alarm':
+            return flags
 
         # 3.2: save cleaned mmCIF structure
         _assign_subchain_ids(structure)
@@ -1011,7 +1019,9 @@ def main(pdb_id):
 
                 new_structure = build_pdb(structure, chain_id)
                 contact_info, bonds_to_add, overlaps_to_resolve = overlap_resolver.detect_contacts(new_structure)
-                overlap_resolver.merge_bonded_chains(new_structure, bonds_to_add)
+                message = overlap_resolver.merge_bonded_chains(new_structure, bonds_to_add, contact_info)
+                if message == 'alarm':
+                    continue
                 basename = f'{pdb_id}_{chain_id}'
 
                 opts = gemmi.PdbWriteOptions()
@@ -1094,4 +1104,4 @@ def wrapper(num_cores = 1):
 
 if __name__ == '__main__':
     wrapper(num_cores = 100)
-    #main('6li7')
+    #main('3zke')

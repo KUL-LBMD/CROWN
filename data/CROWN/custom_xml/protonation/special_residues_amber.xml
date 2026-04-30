@@ -33,14 +33,14 @@
     <H name="HVT4" parent="CBC" />
   </Residue>
   <Residue name="MGD">
-    <H name="H1" parent="C5_2" />
-    <H name="H2" parent="C5_2" />
-    <H name="H3" parent="C4_2" />
-    <H name="H4" parent="C3_2" />
-    <H name="H5" parent="O3_2" />
-    <H name="H6" parent="C2_2" />
-    <H name="H7" parent="O2_2" />
-    <H name="H8" parent="C1_2" />
+    <H name="H1" parent="C5'" />
+    <H name="H2" parent="C5'" />
+    <H name="H3" parent="C4'" />
+    <H name="H4" parent="C3'" />
+    <H name="H5" parent="O3'" />
+    <H name="H6" parent="C2'" />
+    <H name="H7" parent="O2'" />
+    <H name="H8" parent="C1'" />
     <H name="H9" parent="N1" />
     <H name="H10" parent="N2" />
     <H name="H11" parent="N2" />
