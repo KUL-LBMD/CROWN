@@ -38,7 +38,7 @@ MOBILE_RADIUS = 0.6  # Distance in nm (6 Å = 0.6 nm)
 FIX_STRENGTH = 1000000.0  # kJ/mol/nm² - very high to effectively freeze atoms
 TETHER_STRENGTH = 10 # kcal/(mol*A^2). Default parameter in MOE
 TETHER_FLATBOTTOM = 0.25 # Within 0.25 A radius, atoms feel no tethering force
-MINIMIZATION_STEPS = 1
+MINIMIZATION_STEPS = 5000
 ENERGY_REPORT_INTERVAL = 50
 TEMPERATURE = 300  # Kelvin
 TIMESTEP = 0.002  # picoseconds
@@ -51,7 +51,9 @@ STANDARD_AMINO_ACIDS = {
     'ACE', 'NME'
 }
 
-STANDARD_BASES = {'A', 'U', 'G', 'C', 'DA', 'DT', 'DG', 'DC'}
+STANDARD_BASES = {'A', 'U', 'G', 'C', 'DA', 'DT', 'DG', 'DC',
+	'A3', 'A5', 'U3', 'U5', 'G3', 'G5', 'C3', 'C5', 'DA3', 'DA5', 'DT3', 'DT5', 'DG3', 'DG5', 'DC3', 'DC5'
+}
 
 WATER_NAMES = {'HOH', 'WAT', 'TIP3', 'SOL', 'OPC'}
 METALLOCOFACTORS = {'HEM', 'SF4', 'MGD'}
@@ -231,8 +233,6 @@ def add_bonds(topology, positions, resname_set):
             if residue.name != resname:
                 continue
 
-            print(f'{resname} found')
-
             atoms = list(residue.atoms())
             pos = np.array([(positions[a.index].x, positions[a.index].y, positions[a.index].z) 
                         for a in atoms])
@@ -354,6 +354,8 @@ def cap_dna_termini(input_pdb: str, output_pdb: str):
                 atoms_to_remove.append(atom)
 
         # 3' terminus: No action needed
+        last = dna_residues[-1]
+        last.name = last.name + '3'
 
     if atoms_to_remove:
         modeller.delete(atoms_to_remove)
@@ -375,6 +377,8 @@ def prepare_amber(tmp_dir, pdb_path, special_residues):
 	capped_path = f'{tmp_dir}/{basename}_dnacap.pdb'
 	cap_dna_termini(seqres_path, capped_path)
 
+	#capped_path = seqres_path
+
 	Modeller.loadHydrogenDefinitions(f'{DATA_DIR}/custom_xml/protonation/special_residues_amber.xml')
 
 	fixer = PDBFixer(capped_path)
@@ -395,7 +399,7 @@ def prepare_amber(tmp_dir, pdb_path, special_residues):
 
 	return modeller
 
-@timeout(seconds=300)
+@timeout(seconds=900)
 def refine_system(input_dir):
 	"""
 	Structure refinement workflow:
@@ -413,6 +417,9 @@ def refine_system(input_dir):
 	handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
 	logger.addHandler(handler)
 
+	if os.path.isfile(f'{DATA_DIR}/processed_systems/{input_dir}/system_minimized.pdb'):
+		return
+
 	try:
 		with tempfile.TemporaryDirectory() as tmp_dir:
 
@@ -424,7 +431,7 @@ def refine_system(input_dir):
 			pdb_path = f'{DATA_DIR}/systems/{input_dir}/receptor.pdb'
 			pdb_length = get_file_length(pdb_path)
 
-			forcefield_list = ['amber19/protein.ff19SB.xml', 'amber19/DNA.OL21.xml', 'amber19/opc3.xml',
+			forcefield_list = ['amber19/protein.ff19SB.xml', 'amber19/DNA.OL21.xml', 'amber14/RNA.OL3.xml', 'amber19/opc3.xml',
 				f'{DATA_DIR}/custom_xml/forcefield/HEM.xml', f'{DATA_DIR}/custom_xml/forcefield/MGD.xml', f'{DATA_DIR}/custom_xml/forcefield/SF4.xml']
 
 			if pdb_length > 10:
@@ -589,16 +596,24 @@ def refine_system(input_dir):
 				sdf_path = f'{DATA_DIR}/processed_systems/{input_dir}/{basename}_minimized.mol2'
 				ligand_mol.to_file(sdf_path, file_format='SDF')
 
-			logger.removeHandler(handler)
-			handler.close()
 
 	except Exception as e:
 		print(f'{input_dir} - {e}')
 		logger.exception(f"Refinement failed for {input_dir}")
+
+	finally:
 		logger.removeHandler(handler)
 		handler.close()
 
+def safe_refine_system(input_dir):
+	try:
+		refine_system(input_dir)
+	except TimeoutError:
+		print(f'{input_dir} - timed out after 900s, skipping')
+	except Exception as e:
+		# belt-and-suspenders: anything that escapes the inner try/except
+		print(f'{input_dir} - unhandled error: {e}')
+
 if __name__ == '__main__':
 	subdir_list = os.listdir(f'{DATA_DIR}/systems')
-	refine_system('3d2v_I')
-	#Parallel(n_jobs = 100, verbose = 10)(delayed(refine_system)(input_dir) for input_dir in subdir_list)
+	Parallel(n_jobs = 72, verbose = 10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)

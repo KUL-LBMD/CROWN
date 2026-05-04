@@ -1,10 +1,18 @@
 from openmm.app import ForceField
 
-ff = ForceField('amber19/protein.ff19SB.xml',
-                'amber19/DNA.OL21.xml',
-                'amber19/opc3.xml')
+ff = ForceField('amber14/RNA.OL3.xml')
+tpl = ff._templates['G5']
 
-for name in sorted(ff._templates):
-    print(name)
+print(f"{tpl.name}: {len(tpl.atoms)} atoms")
+for a in tpl.atoms:
+    print(f"  {a.name:<6} type={a.type:<6} elem={a.element.symbol}")
 
-print(f"\nTotal: {len(ff._templates)} residue templates")
+# Internal bonds (atom-name pairs)
+print("\nBonds:")
+for i, j in tpl.bonds:
+    print(f"  {tpl.atoms[i].name} — {tpl.atoms[j].name}")
+
+# External bonds = atoms that bond to the *next* residue (3'-side P, etc.)
+print("\nExternal bonds (atoms bonding to neighbor residues):")
+for idx in tpl.externalBonds:
+    print(f"  {tpl.atoms[idx].name}")
