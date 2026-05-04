@@ -184,30 +184,6 @@ def assign_charges_with_fallback(molecule: Molecule) -> Molecule:
     except Exception as e:
         raise
 
-def calc_rmsd(pos_ref, pos_target, atom_indices):
-	"""
-	Computes RMSD (in angstrom) between 2 coordinate arrays.
-
-	Parameters
-	----------
-
-	pos_ref [N, 3]: reference coordinates
-	pos_target [N, 3]: updated coordinates
-	atom_indices [L]: subset of atom indices to use
-
-	Returns
-	-------
-
-	rmsd [float]
-	"""
-
-	if atom_indices is not None:
-		pos_ref = pos_ref[atom_indices]
-		pos_target = pos_target[atom_indices]
-
-	diff = pos_ref - pos_target
-	return float(np.sqrt((diff**2).sum(axis=1).mean()))
-
 def find_cofactors(pdb_path):
 	"""
 	Find all metallocofactor entries in a pdb file
@@ -399,6 +375,59 @@ def prepare_amber(tmp_dir, pdb_path, special_residues):
 
 	return modeller
 
+def get_rebuilt_atom_indices(original_pdb_path, topology, positions, tol_nm=0.005):
+	"""
+	Identify atoms belonging to residues that were rebuilt by PDBFixer.
+
+	A residue is considered 'rebuilt' if its CA atom is not present at the same
+	coordinates in the original PDB. ACE/NME caps and any other residues without
+	a CA atom in the new topology are also treated as rebuilt.
+
+	Parameters
+	----------
+	original_pdb_path : str
+		Path to the un-fixed PDB (coordinates in Angstroms).
+	topology : openmm.app.Topology
+		Current (post-PDBFixer) topology.
+	positions : list of openmm.Vec3 with units
+		Current positions matching `topology`.
+    tol_nm : float
+        Max distance (nm) for matching a CA against the original.
+        Default 0.05 nm = 0.5 Å, which is generous given PDBFixer doesn't
+        perturb existing atoms.
+
+    Returns
+    -------
+    set[int]
+        Atom indices in `topology` belonging to rebuilt residues.
+    """
+    
+	original_coords = []
+	with open(original_pdb_path, 'r') as f:
+		for line in f:
+			if line.startswith(('HETATM', 'ATOM')):
+				x = float(line[30:38]) * 0.1
+				y = float(line[38:46]) * 0.1
+				z = float(line[46:54]) * 0.1
+				original_coords.append((x,y,z))
+
+	if not original_coords:
+		return set()
+	
+	tree = KDTree(np.asarray(original_coords))
+	rebuilt_indices = ()
+	for atom in topology.atoms():
+		if atom.element.symbol == 'H':
+			continue
+		pos = positions[atom.index].value_in_unit(unit.nanometers)
+		dist, _ = tree.query(pos, k = 1)
+		if dist > tol_nm:
+			rebuilt_indices.update(atom.index)
+
+	print(rebuilt_indices)
+	return rebuilt_indices
+
+
 @timeout(seconds=900)
 def refine_system(input_dir):
 	"""
@@ -537,15 +566,29 @@ def refine_system(input_dir):
 			mobile_restraint.addPerParticleParameter("y0")
 			mobile_restraint.addPerParticleParameter("z0")
 
+			###
+			# Read original CA coordinates. 
+			# If residue's CA coordinate not in original file, it is a rebuilt residue. 
+			# These get no restraints.
+			###
+
+			original_path = f'{DATA_DIR}/pdb/raw/{input_dir}.pdb'
+			rebuilt_indices = get_rebuilt_atom_indices(original_path, modeller.topology, modeller.positions)
+			logger.info(f"Skipping restraints on {len(rebuilt_indices)} rebuilt atoms")
+
 			for atom in modeller.topology.atoms():
+                        
+				if atom.element.symbol == 'H':
+					continue
+                        
+				if atom.index in rebuilt_indices:
+					continue # rebuilt residue — let it relax freely
+
 				pos = positions[atom.index].value_in_unit(unit.nanometers)
-
-				if atom.element.symbol != 'H':
-
-					if atom.index not in mobile_atoms:
-						nonmobile_restraint.addParticle(atom.index, pos)
-					else:
-						mobile_restraint.addParticle(atom.index, pos)
+				if atom.index not in mobile_atoms:
+					nonmobile_restraint.addParticle(atom.index, pos)
+				else:
+					mobile_restraint.addParticle(atom.index, pos)
 
 			system.addForce(nonmobile_restraint)
 			system.addForce(mobile_restraint)
