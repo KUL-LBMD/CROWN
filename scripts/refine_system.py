@@ -373,9 +373,9 @@ def prepare_amber(tmp_dir, pdb_path, special_residues):
 		modeller = Modeller(fixer.topology, fixer.positions)
 
 	# Remove all waters?
-	atoms_to_remove = [a for a in modeller.topology.atoms() if a.residue.name in {'HOH', 'WAT', 'TIP3', 'SOL', 'OPC', 'DOD'}]
-	if atoms_to_remove:
-		modeller.delete(atoms_to_remove)
+	#atoms_to_remove = [a for a in modeller.topology.atoms() if a.residue.name in {'HOH', 'WAT', 'TIP3', 'SOL', 'OPC', 'DOD'}]
+	#if atoms_to_remove:
+	#	modeller.delete(atoms_to_remove)
 
 	return modeller
 
@@ -413,38 +413,51 @@ def get_rebuilt_atom_indices(original_pdb_path, topology, positions, tol_nm=0.00
 				x = float(line[30:38]) * 0.1
 				y = float(line[38:46]) * 0.1
 				z = float(line[46:54]) * 0.1
-				original_coords.append((x,y,z))
+				if line[12:16].strip() == 'CA':
+					original_coords.append((x,y,z))
 
 	if not original_coords:
 		return set()
 	
 	tree = KDTree(np.asarray(original_coords))
 	rebuilt_indices = set()
-	for atom in topology.atoms():
-		if atom.element.symbol == 'H':
+	for residue in topology.residues():
+		# ACE/NME caps and similar have no CA — always rebuilt
+		if residue.name in {'ACE', 'NME'}:
+			rebuilt_indices.update(a.index for a in residue.atoms())
 			continue
-		pos = positions[atom.index].value_in_unit(unit.nanometers)
-		dist, _ = tree.query(pos, k = 1)
+
+		# Only protein residues are candidates for CA-based matching
+		if residue.name not in STANDARD_AMINO_ACIDS:
+			continue
+
+		ca = next((a for a in residue.atoms() if a.name == 'CA'), None)
+		if ca is None:
+			# Protein residue with no CA shouldn't happen, but be safe
+			rebuilt_indices.update(a.index for a in residue.atoms())
+			continue
+
+		ca_pos = np.asarray(positions[ca.index].value_in_unit(unit.nanometer))
+		dist, _ = tree.query(ca_pos, k=1)
 		if dist > tol_nm:
-			rebuilt_indices.add(atom.index)
+			rebuilt_indices.update(a.index for a in residue.atoms())
 
 	return rebuilt_indices
 
-def diagnose_model(modeller):
-	# Check for coincident or near-coincident atom pairs
-	pos_nm = np.array([p.value_in_unit(unit.nanometer) for p in modeller.positions])
-	tree = KDTree(pos_nm)
-	pairs = tree.query_pairs(r=0.1)  # 0.5 Å — way below any real bond
-	atoms = list(modeller.topology.atoms())
+def _remove_rebuilt_residues(pdb_path, input_dir):
 
-	for i, j in pairs:
-		d = np.linalg.norm(pos_nm[i] - pos_nm[j])
-		a1, a2 = atoms[i], atoms[j]
-		print(
-			f"Clash {d*10:.3f} Å: "
-			f"{a1.residue.name}{a1.residue.id}:{a1.name} <-> "
-			f"{a2.residue.name}{a2.residue.id}:{a2.name}"
-		)
+	fixer = PDBFixer(pdb_path)
+	modeller = Modeller(fixer.topology, fixer.positions)
+
+	original_path = f'{DATA_DIR}/pdb/raw/{input_dir}.pdb'
+	rebuilt_indices = get_rebuilt_atom_indices(original_path, modeller.topology, modeller.positions)
+
+	for atom in modeller.topology.atoms():
+		if atom.index in rebuilt_indices:
+			modeller.delete(atom)
+
+	with open(pdb_path, 'w') as f:
+		PDBFile.writeFile(modeller.topology, modeller.positions, f)
 
 @timeout(seconds=900)
 def refine_system(input_dir):
@@ -635,8 +648,6 @@ def refine_system(input_dir):
 			simulation.context.setPositions(modeller.positions)
 
 			# System diagnosis
-			diagnose_model(modeller)
-
 			state = simulation.context.getState(getForces=True)
 			forces = state.getForces(asNumpy=True).value_in_unit(
 				unit.kilojoule_per_mole/unit.nanometer
@@ -644,34 +655,35 @@ def refine_system(input_dir):
 
 			fmag = np.linalg.norm(forces, axis=1)
 			n_nan = np.isnan(fmag).sum()
-			if n_nan > 0:
-				nan_idx = np.where(np.isnan(fmag))[0]
-				logger.warning(f"{n_nan} atoms have NaN forces; first few: {nan_idx[:5]}")
+			fmax = np.nanmax(fmag)
 
-			simulation.minimizeEnergy(maxIterations = MINIMIZATION_STEPS)
+			if n_nan > 0 or fmax > 1e6:
+				refine_system_backup(input_dir)
 
-			# ====================================================================
-			# STEP 7: Save outputs
-			# ====================================================================
+			else:
+				simulation.minimizeEnergy(maxIterations = MINIMIZATION_STEPS)
 
-			state = simulation.context.getState(getEnergy=True, getPositions=True)
-			minimized_positions = state.getPositions()
+				# ====================================================================
+				# STEP 7: Save outputs
+				# ====================================================================
 
-			# Save minimized structure as PDB (protein/water only, no ligands)
-			os.makedirs(DATA_DIR / 'processed_systems' / input_dir, exist_ok = True)
-			pdb_modeller = Modeller(modeller.topology, minimized_positions)
-			pdb_path = f'{DATA_DIR}/processed_systems/{input_dir}/system_minimized.pdb'
-			with open(pdb_path, 'w') as f:
-				PDBFile.writeFile(pdb_modeller.topology, pdb_modeller.positions, f)
+				state = simulation.context.getState(getEnergy=True, getPositions=True)
+				minimized_positions = state.getPositions()
 
-			# Save each ligand as a separate mol2 with minimized coordinates
-			for basename, ligand_mol, atom_indices in ligand_entries:
-				minimized_coords = np.array([minimized_positions[i].value_in_unit(unit.angstrom) for i in atom_indices]) * openff_unit.angstrom
-				ligand_mol.conformers[0] = minimized_coords
+				# Save minimized structure as PDB (protein/water only, no ligands)
+				os.makedirs(DATA_DIR / 'processed_systems' / input_dir, exist_ok = True)
+				pdb_modeller = Modeller(modeller.topology, minimized_positions)
+				pdb_path = f'{DATA_DIR}/processed_systems/{input_dir}/system_minimized.pdb'
+				with open(pdb_path, 'w') as f:
+					PDBFile.writeFile(pdb_modeller.topology, pdb_modeller.positions, f)
 
-				sdf_path = f'{DATA_DIR}/processed_systems/{input_dir}/{basename}_minimized.mol2'
-				ligand_mol.to_file(sdf_path, file_format='SDF')
+				# Save each ligand as a separate mol2 with minimized coordinates
+				for basename, ligand_mol, atom_indices in ligand_entries:
+					minimized_coords = np.array([minimized_positions[i].value_in_unit(unit.angstrom) for i in atom_indices]) * openff_unit.angstrom
+					ligand_mol.conformers[0] = minimized_coords
 
+					sdf_path = f'{DATA_DIR}/processed_systems/{input_dir}/{basename}_minimized.mol2'
+					ligand_mol.to_file(sdf_path, file_format='SDF')
 
 	except Exception as e:
 		print(f'{input_dir} - {e}')
@@ -680,6 +692,200 @@ def refine_system(input_dir):
 	finally:
 		logger.removeHandler(handler)
 		handler.close()
+
+def refine_system_backup(input_dir):
+	"""
+	Structure refinement workflow:
+	1. Protonate ligands and cofactors with dimorphite_dl
+	2. Prepare protein-only structure with PDBFixer
+	3. Combine full PLI system
+	4. Run constrained energy minimization
+	"""
+
+	# ====================================================================
+	# Step 1: Set-up
+	# ====================================================================
+
+	if os.path.isfile(f'{DATA_DIR}/processed_systems/{input_dir}/system_minimized.pdb'):
+		return
+
+	with tempfile.TemporaryDirectory() as tmp_dir:
+
+		# ====================================================================
+		# Step 2: Create protein-only structure and run PDBFixer
+		# ====================================================================
+
+		# First check for weird cofactors
+		pdb_path = f'{DATA_DIR}/systems/{input_dir}/receptor.pdb'
+		pdb_length = get_file_length(pdb_path)
+
+		forcefield_list = ['amber19/protein.ff19SB.xml', 'amber19/DNA.OL21.xml', 'amber14/RNA.OL3.xml', 'amber19/opc3.xml',
+			f'{DATA_DIR}/custom_xml/forcefield/HEM.xml', f'{DATA_DIR}/custom_xml/forcefield/MGD.xml', f'{DATA_DIR}/custom_xml/forcefield/SF4.xml']
+
+		if pdb_length > 10:
+			_clean_file(pdb_path)
+			rename_single_atom_residues(pdb_path)  # fix single-atom LIG/UNK/UNL residues
+			_remove_rebuilt_residues(pdb_path, input_dir)
+			special_residues = find_cofactors(pdb_path)
+			modeller = prepare_amber(tmp_dir, pdb_path, special_residues)
+		else:
+			modeller = Modeller(Topology(), [] * unit.nanometers)
+
+		# ====================================================================
+        # Step 3: Add ligands back with proper parameters
+        # ====================================================================
+
+		# Add each ligand back to the modeller
+		ligand_molecules = []
+		ligand_entries = []  # (basename, Molecule, list of atom indices)
+
+		for ligand_file in sorted(os.listdir(f'{DATA_DIR}/systems/{input_dir}')):
+			if ligand_file.endswith('.sdf'):
+				basename = ligand_file.replace('.sdf', '')
+				ligand_mol = Molecule.from_file(f'{DATA_DIR}/systems/{input_dir}/{ligand_file}', allow_undefined_stereo=True)
+				ligand_mol = assign_charges_with_fallback(ligand_mol)
+				ligand_molecules.append(ligand_mol)
+
+				# Convert OpenFF positions to OpenMM unit system
+				ligand_topology = ligand_mol.to_topology().to_openmm()
+				ligand_positions = ligand_mol.conformers[0].to_openmm()
+
+				# Record indices before adding (they'll start at current atom count)
+				offset = modeller.topology.getNumAtoms()
+				n_atoms = ligand_topology.getNumAtoms()
+				modeller.add(ligand_topology, ligand_positions)
+
+				ligand_entries.append((basename, ligand_mol, list(range(offset, offset + n_atoms))))
+
+		# Merged set of all ligand indices (used for KDTree and restraints)
+		all_atoms = list(modeller.topology.atoms())
+
+		ligand_indices = set()
+		for _, _, indices in ligand_entries:
+			ligand_indices.update(i for i in indices if all_atoms[i].element.symbol != 'H')
+
+		for residue in modeller.topology.residues():
+			if residue.name in METALLOCOFACTORS:
+				for atom in residue.atoms():
+					if atom.element.symbol != 'H':
+						ligand_indices.add(atom.index)
+
+		system_generator = SystemGenerator(
+			forcefields=forcefield_list, # IMPLICIT WATER MODEL ADDED https://github.com/openmm/openmm/issues/3364
+			small_molecule_forcefield='openff-2.2.0',
+			molecules=ligand_molecules,
+		)
+
+		# Remove duplicate entries: TL1 / Tl, FE2 / FE
+		system_generator.forcefield = clean_ff(system_generator.forcefield)
+		system = system_generator.create_system(modeller.topology)
+
+		# ====================================================================
+		# STEP 4: Identify mobile region around ligands
+		# ====================================================================
+
+		# Use KDTree for more efficient spatial lookup
+		positions = modeller.positions
+		all_positions_nm = np.array([positions[i].value_in_unit(unit.nanometer) for i in range(len(positions))])
+		ligand_indices_list = sorted(ligand_indices)
+		ligand_positions_nm = all_positions_nm[ligand_indices_list]
+		ligand_tree = KDTree(ligand_positions_nm)
+
+		distances, _ = ligand_tree.query(all_positions_nm, k=1)  # nearest ligand atom
+		mobile_mask = distances <= MOBILE_RADIUS
+		mobile_atoms = {i for i in np.where(mobile_mask)[0].tolist() if all_atoms[i].element.symbol != 'H'}
+
+		# ====================================================================
+        # STEP 5: Add restraints to both mobile and non-mobile atoms
+        # ====================================================================
+
+		nonmobile_restraint = CustomExternalForce("k*r^2; r=sqrt((x-x0)^2+(y-y0)^2+(z-z0)^2)")
+		nonmobile_restraint.addGlobalParameter('k', FIX_STRENGTH * unit.kilojoules_per_mole / unit.nanometer**2)
+		nonmobile_restraint.addPerParticleParameter("x0")
+		nonmobile_restraint.addPerParticleParameter("y0")
+		nonmobile_restraint.addPerParticleParameter("z0")
+
+		# Continuously differentiable energy term. Flat-bottom tethering with smoothstep function
+		# Energy, force and second derivative at r=0.25 are 0.
+		# Energy and force at 1.25 are 1, second derivative is 0.
+		mobile_restraint = CustomExternalForce('w*('
+			'step(r-u)*(1-step(r-(d+u)))*(a*(r-u)^5+b*(r-u)^4+c*(r-u)^3)' # [u, 1+u]
+			'+step(r-(d+u))*d*(r-u)' # [1+u, +inf]
+			'); '
+			'r=sqrt((x-x0)^2+(y-y0)^2+(z-z0)^2+eps)'
+		)
+
+		mobile_restraint.addGlobalParameter('w', TETHER_STRENGTH * unit.kilocalories_per_mole / unit.angstrom**2)
+		mobile_restraint.addGlobalParameter('u', TETHER_FLATBOTTOM * unit.angstrom)
+		mobile_restraint.addGlobalParameter('a', 3 * unit.angstrom**(-3))
+		mobile_restraint.addGlobalParameter('b', -8 * unit.angstrom**(-2))
+		mobile_restraint.addGlobalParameter('c', 6 * unit.angstrom**(-1))
+		mobile_restraint.addGlobalParameter('d', 1.0 * unit.angstrom)
+		mobile_restraint.addGlobalParameter('eps', 1e-16 * unit.nanometer**2) # Some noise needed in distance calculation, because r=0 in first minimization step blows up system
+		mobile_restraint.addPerParticleParameter("x0")
+		mobile_restraint.addPerParticleParameter("y0")
+		mobile_restraint.addPerParticleParameter("z0")	
+
+		for atom in modeller.topology.atoms():
+                        
+			if atom.element.symbol == 'H':
+				continue
+                        
+			pos = positions[atom.index].value_in_unit(unit.nanometers)
+			if atom.index not in mobile_atoms:
+				nonmobile_restraint.addParticle(atom.index, pos)
+			else:
+				mobile_restraint.addParticle(atom.index, pos)
+
+		system.addForce(nonmobile_restraint)
+		system.addForce(mobile_restraint)
+
+		# ====================================================================
+		# STEP 6: Run energy minimization
+		# ====================================================================
+
+		integrator = LangevinMiddleIntegrator(
+			TEMPERATURE * unit.kelvin,
+			1.0 / unit.picosecond, # friction coefficient
+			TIMESTEP * unit.picoseconds
+		)
+
+		# Force OpenMM to use single-threaded CPU platform to prevent thread conflicts with multiprocessing https://github.com/openmm/openmm/issues/4424
+		platform = Platform.getPlatformByName('CPU')
+		properties = {'Threads': '1'}
+
+		# Save original coordinates before energy minimization
+		os.makedirs(DATA_DIR / 'processed_systems' / input_dir, exist_ok = True)
+		pdb_path = f'{DATA_DIR}/processed_systems/{input_dir}/system_protonated.pdb'
+		with open(pdb_path, 'w') as f:
+			PDBFile.writeFile(modeller.topology, modeller.positions, f)
+
+		simulation = Simulation(modeller.topology, system, integrator, platform, properties)
+		simulation.context.setPositions(modeller.positions)
+
+		simulation.minimizeEnergy(maxIterations = MINIMIZATION_STEPS)
+
+		# ====================================================================
+		# STEP 7: Save outputs
+		# ====================================================================
+
+		state = simulation.context.getState(getEnergy=True, getPositions=True)
+		minimized_positions = state.getPositions()
+
+		# Save minimized structure as PDB (protein/water only, no ligands)
+		os.makedirs(DATA_DIR / 'processed_systems' / input_dir, exist_ok = True)
+		pdb_modeller = Modeller(modeller.topology, minimized_positions)
+		pdb_path = f'{DATA_DIR}/processed_systems/{input_dir}/system_minimized.pdb'
+		with open(pdb_path, 'w') as f:
+			PDBFile.writeFile(pdb_modeller.topology, pdb_modeller.positions, f)
+
+		# Save each ligand as a separate mol2 with minimized coordinates
+		for basename, ligand_mol, atom_indices in ligand_entries:
+			minimized_coords = np.array([minimized_positions[i].value_in_unit(unit.angstrom) for i in atom_indices]) * openff_unit.angstrom
+			ligand_mol.conformers[0] = minimized_coords
+
+			sdf_path = f'{DATA_DIR}/processed_systems/{input_dir}/{basename}_minimized.mol2'
+			ligand_mol.to_file(sdf_path, file_format='SDF')
 
 def safe_refine_system(input_dir):
 	try:
