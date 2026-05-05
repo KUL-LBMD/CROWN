@@ -344,20 +344,19 @@ def prepare_amber(tmp_dir, pdb_path, special_residues):
 	Prepare modeller and force field list for special AMBER residues
 	"""
 
-	# Add SEQRES with caps
 	basename = pdb_path.split('/')[-1][:-4]
-	seqres_path = f'{tmp_dir}/{basename}_seqres.pdb'
-	add_seqres_with_caps(pdb_path, seqres_path)
 
 	# DNA terminal renaming + 5'-phosphate stripping
 	capped_path = f'{tmp_dir}/{basename}_dnacap.pdb'
-	cap_dna_termini(seqres_path, capped_path)
+	cap_dna_termini(pdb_path, capped_path)
 
-	#capped_path = seqres_path
+	# Add SEQRES with caps
+	seqres_path = f'{tmp_dir}/{basename}_seqres.pdb'
+	add_seqres_with_caps(capped_path, seqres_path)
 
 	Modeller.loadHydrogenDefinitions(f'{DATA_DIR}/custom_xml/protonation/special_residues_amber.xml')
 
-	fixer = PDBFixer(capped_path)
+	fixer = PDBFixer(seqres_path)
 	fixer.findMissingResidues()
 	fixer.findMissingAtoms()
 	fixer.addMissingAtoms()
@@ -372,6 +371,11 @@ def prepare_amber(tmp_dir, pdb_path, special_residues):
 		add_bonds(modeller.topology, modeller.positions, special_residues)
 	else:
 		modeller = Modeller(fixer.topology, fixer.positions)
+
+	# Remove all waters?
+	atoms_to_remove = [a for a in modeller.topology.atoms() if a.residue.name in {'HOH', 'WAT', 'TIP3', 'SOL', 'OPC', 'DOD'}]
+	if atoms_to_remove:
+		modeller.delete(atoms_to_remove)
 
 	return modeller
 
@@ -415,18 +419,32 @@ def get_rebuilt_atom_indices(original_pdb_path, topology, positions, tol_nm=0.00
 		return set()
 	
 	tree = KDTree(np.asarray(original_coords))
-	rebuilt_indices = ()
+	rebuilt_indices = set()
 	for atom in topology.atoms():
 		if atom.element.symbol == 'H':
 			continue
 		pos = positions[atom.index].value_in_unit(unit.nanometers)
 		dist, _ = tree.query(pos, k = 1)
 		if dist > tol_nm:
-			rebuilt_indices.update(atom.index)
+			rebuilt_indices.add(atom.index)
 
-	print(rebuilt_indices)
 	return rebuilt_indices
 
+def diagnose_model(modeller):
+	# Check for coincident or near-coincident atom pairs
+	pos_nm = np.array([p.value_in_unit(unit.nanometer) for p in modeller.positions])
+	tree = KDTree(pos_nm)
+	pairs = tree.query_pairs(r=0.1)  # 0.5 Å — way below any real bond
+	atoms = list(modeller.topology.atoms())
+
+	for i, j in pairs:
+		d = np.linalg.norm(pos_nm[i] - pos_nm[j])
+		a1, a2 = atoms[i], atoms[j]
+		print(
+			f"Clash {d*10:.3f} Å: "
+			f"{a1.residue.name}{a1.residue.id}:{a1.name} <-> "
+			f"{a2.residue.name}{a2.residue.id}:{a2.name}"
+		)
 
 @timeout(seconds=900)
 def refine_system(input_dir):
@@ -615,6 +633,21 @@ def refine_system(input_dir):
 
 			simulation = Simulation(modeller.topology, system, integrator, platform, properties)
 			simulation.context.setPositions(modeller.positions)
+
+			# System diagnosis
+			diagnose_model(modeller)
+
+			state = simulation.context.getState(getForces=True)
+			forces = state.getForces(asNumpy=True).value_in_unit(
+				unit.kilojoule_per_mole/unit.nanometer
+			)
+
+			fmag = np.linalg.norm(forces, axis=1)
+			n_nan = np.isnan(fmag).sum()
+			if n_nan > 0:
+				nan_idx = np.where(np.isnan(fmag))[0]
+				logger.warning(f"{n_nan} atoms have NaN forces; first few: {nan_idx[:5]}")
+
 			simulation.minimizeEnergy(maxIterations = MINIMIZATION_STEPS)
 
 			# ====================================================================
@@ -659,4 +692,5 @@ def safe_refine_system(input_dir):
 
 if __name__ == '__main__':
 	subdir_list = os.listdir(f'{DATA_DIR}/systems')
-	Parallel(n_jobs = 72, verbose = 10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)
+	safe_refine_system('6aro_E')
+	#Parallel(n_jobs = 72, verbose = 10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)
