@@ -1,6 +1,7 @@
 from src.config import DATA_DIR
 
 import os
+import shutil
 import tempfile
 import numpy as np
 import string
@@ -373,11 +374,6 @@ def prepare_amber(tmp_dir, pdb_path, special_residues):
 	else:
 		modeller = Modeller(fixer.topology, fixer.positions)
 
-	# Remove all waters?
-	#atoms_to_remove = [a for a in modeller.topology.atoms() if a.residue.name in {'HOH', 'WAT', 'TIP3', 'SOL', 'OPC', 'DOD'}]
-	#if atoms_to_remove:
-	#	modeller.delete(atoms_to_remove)
-
 	return modeller
 
 def prepare_amber_backup(tmp_dir, pdb_path, special_residues):
@@ -391,9 +387,13 @@ def prepare_amber_backup(tmp_dir, pdb_path, special_residues):
 	capped_path = f'{tmp_dir}/{basename}_dnacap.pdb'
 	cap_dna_termini(pdb_path, capped_path)
 
+	# Add SEQRES with caps
+	seqres_path = f'{tmp_dir}/{basename}_seqres.pdb'
+	add_seqres_with_caps(capped_path, seqres_path)
+
 	Modeller.loadHydrogenDefinitions(f'{DATA_DIR}/custom_xml/protonation/special_residues_amber.xml')
 
-	fixer = PDBFixer(capped_path)
+	fixer = PDBFixer(seqres_path)
 	fixer.findMissingResidues()
 	fixer.findMissingAtoms()
 	fixer.addMissingAtoms()
@@ -408,11 +408,6 @@ def prepare_amber_backup(tmp_dir, pdb_path, special_residues):
 		add_bonds(modeller.topology, modeller.positions, special_residues)
 	else:
 		modeller = Modeller(fixer.topology, fixer.positions)
-
-	# Remove all waters?
-	atoms_to_remove = [a for a in modeller.topology.atoms() if a.residue.name in {'HOH', 'WAT', 'TIP3', 'SOL', 'OPC', 'DOD'}]
-	if atoms_to_remove:
-		modeller.delete(atoms_to_remove)
 
 	return modeller
 
@@ -589,6 +584,58 @@ def _remove_rebuilt_residues(pdb_path, input_dir):
     with open(pdb_path, 'w') as f:
         PDBFile.writeFile(new_top, new_pos, f)
 
+def strip_distant_waters(modeller, ligand_molecules, cutoff_nm=0.4):
+    """
+    Delete waters whose oxygen is further than `cutoff_nm` from any ligand
+    heavy atom. Operates on `modeller` in place.
+
+    Parameters
+    ----------
+    modeller : openmm.app.Modeller
+    ligand_molecules : iterable of openff.toolkit.Molecule
+        Ligands with at least one conformer set; positions read from
+        conformers[0] (in Å).
+    cutoff_nm : float
+        Distance cutoff in nm. Default 0.4 nm = 4 Å.
+
+    Returns
+    -------
+    int
+        Number of water residues removed.
+    """
+    # Collect ligand heavy-atom positions in nm
+    ref_positions = []
+    for mol in ligand_molecules:
+        coords_nm = mol.conformers[0].to(openff_unit.nanometer).magnitude
+        for atom, xyz in zip(mol.atoms, coords_nm):
+            if atom.atomic_number != 1:
+                ref_positions.append(xyz)
+    if not ref_positions:
+        return 0
+
+    tree = KDTree(np.asarray(ref_positions))
+
+    positions = np.array(
+        [p.value_in_unit(unit.nanometer) for p in modeller.positions]
+    )
+
+    waters_to_remove = []
+    for residue in modeller.topology.residues():
+        if residue.name not in WATER_NAMES:
+            continue
+        oxygen = next(
+            (a for a in residue.atoms() if a.element.symbol == 'O'), None
+        )
+        if oxygen is None:
+            continue
+        d, _ = tree.query(positions[oxygen.index], k=1)
+        if d > cutoff_nm:
+            waters_to_remove.append(residue)
+
+    if waters_to_remove:
+        modeller.delete(waters_to_remove)
+    return len(waters_to_remove)
+
 @timeout(seconds=900)
 def refine_system(input_dir):
 	"""
@@ -636,27 +683,35 @@ def refine_system(input_dir):
             # Step 3: Add ligands back with proper parameters
             # ====================================================================
 
-			# Add each ligand back to the modeller
-			ligand_molecules = []
-			ligand_entries = []  # (basename, Molecule, list of atom indices)
-
+			# ---- Pass 1: read ligands and assign charges (don't add to modeller yet) ----
+			pending_ligands = []  # (basename, ligand_mol)
 			for ligand_file in sorted(os.listdir(f'{DATA_DIR}/systems/{input_dir}')):
 				if ligand_file.endswith('.sdf'):
 					basename = ligand_file.replace('.sdf', '')
-					ligand_mol = Molecule.from_file(f'{DATA_DIR}/systems/{input_dir}/{ligand_file}', allow_undefined_stereo=True)
+					ligand_mol = Molecule.from_file(
+						f'{DATA_DIR}/systems/{input_dir}/{ligand_file}',
+						allow_undefined_stereo=True,
+					)
 					ligand_mol = assign_charges_with_fallback(ligand_mol)
-					ligand_molecules.append(ligand_mol)
+					pending_ligands.append((basename, ligand_mol))
 
-					# Convert OpenFF positions to OpenMM unit system
-					ligand_topology = ligand_mol.to_topology().to_openmm()
-					ligand_positions = ligand_mol.conformers[0].to_openmm()
+			# ---- Strip waters > 4 Å from any ligand heavy atom ----
+			n_removed = strip_distant_waters(
+    			modeller, [mol for _, mol in pending_ligands], cutoff_nm=0.4
+			)
+			logger.info(f"Stripped {n_removed} waters > 4 Å from any ligand atom")
 
-					# Record indices before adding (they'll start at current atom count)
-					offset = modeller.topology.getNumAtoms()
-					n_atoms = ligand_topology.getNumAtoms()
-					modeller.add(ligand_topology, ligand_positions)
-
-					ligand_entries.append((basename, ligand_mol, list(range(offset, offset + n_atoms))))
+			# ---- Pass 2: add ligands; indices are now stable ----
+			ligand_molecules = []
+			ligand_entries = []
+			for basename, ligand_mol in pending_ligands:
+				ligand_molecules.append(ligand_mol)
+				ligand_topology = ligand_mol.to_topology().to_openmm()
+				ligand_positions = ligand_mol.conformers[0].to_openmm()
+				offset = modeller.topology.getNumAtoms()
+				n_atoms = ligand_topology.getNumAtoms()
+				modeller.add(ligand_topology, ligand_positions)
+				ligand_entries.append((basename, ligand_mol, list(range(offset, offset + n_atoms))))
 
 			# Merged set of all ligand indices (used for KDTree and restraints)
 			all_atoms = list(modeller.topology.atoms())
@@ -788,8 +843,7 @@ def refine_system(input_dir):
 			fmax = np.nanmax(fmag)
 
 			if n_nan > 0 or fmax > 1e6:
-				pass
-				#refine_system_backup(input_dir)
+				refine_system_backup(input_dir)
 
 			else:
 				simulation.minimizeEnergy(maxIterations = MINIMIZATION_STEPS)
@@ -818,6 +872,8 @@ def refine_system(input_dir):
 
 	except Exception as e:
 		print(f'{input_dir} - {e}')
+		if os.path.isdir(f'{DATA_DIR}/processed_systems/{input_dir}'):
+			shutil.rmtree(f'{DATA_DIR}/processed_systems/{input_dir}')
 		logger.exception(f"Refinement failed for {input_dir}")
 
 	finally:
@@ -866,26 +922,34 @@ def refine_system_backup(input_dir):
         # Step 3: Add ligands back with proper parameters
         # ====================================================================
 
-		# Add each ligand back to the modeller
-		ligand_molecules = []
-		ligand_entries = []  # (basename, Molecule, list of atom indices)
+		# ---- Pass 1: read ligands and assign charges (don't add to modeller yet) ----
+			pending_ligands = []  # (basename, ligand_mol)
+			for ligand_file in sorted(os.listdir(f'{DATA_DIR}/systems/{input_dir}')):
+				if ligand_file.endswith('.sdf'):
+					basename = ligand_file.replace('.sdf', '')
+					ligand_mol = Molecule.from_file(
+						f'{DATA_DIR}/systems/{input_dir}/{ligand_file}',
+						allow_undefined_stereo=True,
+					)
+					ligand_mol = assign_charges_with_fallback(ligand_mol)
+					pending_ligands.append((basename, ligand_mol))
 
-		for ligand_file in sorted(os.listdir(f'{DATA_DIR}/systems/{input_dir}')):
-			if ligand_file.endswith('.sdf'):
-				basename = ligand_file.replace('.sdf', '')
-				ligand_mol = Molecule.from_file(f'{DATA_DIR}/systems/{input_dir}/{ligand_file}', allow_undefined_stereo=True)
-				ligand_mol = assign_charges_with_fallback(ligand_mol)
+			# ---- Strip waters > 4 Å from any ligand heavy atom ----
+			n_removed = strip_distant_waters(
+    			modeller, [mol for _, mol in pending_ligands], cutoff_nm=0.4
+			)
+			logger.info(f"Stripped {n_removed} waters > 4 Å from any ligand atom")
+
+			# ---- Pass 2: add ligands; indices are now stable ----
+			ligand_molecules = []
+			ligand_entries = []
+			for basename, ligand_mol in pending_ligands:
 				ligand_molecules.append(ligand_mol)
-
-				# Convert OpenFF positions to OpenMM unit system
 				ligand_topology = ligand_mol.to_topology().to_openmm()
 				ligand_positions = ligand_mol.conformers[0].to_openmm()
-
-				# Record indices before adding (they'll start at current atom count)
 				offset = modeller.topology.getNumAtoms()
 				n_atoms = ligand_topology.getNumAtoms()
 				modeller.add(ligand_topology, ligand_positions)
-
 				ligand_entries.append((basename, ligand_mol, list(range(offset, offset + n_atoms))))
 
 		# Merged set of all ligand indices (used for KDTree and restraints)
@@ -999,9 +1063,6 @@ def refine_system_backup(input_dir):
 		forces = state.getForces(asNumpy=True).value_in_unit(
 			unit.kilojoule_per_mole/unit.nanometer
 		)
-
-		fmag = np.linalg.norm(forces, axis=1)
-		n_nan = np.isnan(fmag).sum()
 
 		simulation.minimizeEnergy(maxIterations = MINIMIZATION_STEPS)
 
