@@ -452,9 +452,13 @@ def _remove_rebuilt_residues(pdb_path, input_dir):
 	original_path = f'{DATA_DIR}/pdb/raw/{input_dir}.pdb'
 	rebuilt_indices = get_rebuilt_atom_indices(original_path, modeller.topology, modeller.positions)
 
+	atoms_to_delete = set()
+
 	for atom in modeller.topology.atoms():
 		if atom.index in rebuilt_indices:
-			modeller.delete(atom)
+			atoms_to_delete.add(atom)
+
+	modeller.delete(atoms_to_delete)
 
 	with open(pdb_path, 'w') as f:
 		PDBFile.writeFile(modeller.topology, modeller.positions, f)
