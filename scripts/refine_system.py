@@ -840,9 +840,8 @@ def refine_system(input_dir):
 
 			fmag = np.linalg.norm(forces, axis=1)
 			n_nan = np.isnan(fmag).sum()
-			fmax = np.nanmax(fmag)
 
-			if n_nan > 0 or fmax > 1e6:
+			if n_nan > 0:
 				refine_system_backup(input_dir)
 
 			else:
@@ -923,34 +922,34 @@ def refine_system_backup(input_dir):
         # ====================================================================
 
 		# ---- Pass 1: read ligands and assign charges (don't add to modeller yet) ----
-			pending_ligands = []  # (basename, ligand_mol)
-			for ligand_file in sorted(os.listdir(f'{DATA_DIR}/systems/{input_dir}')):
-				if ligand_file.endswith('.sdf'):
-					basename = ligand_file.replace('.sdf', '')
-					ligand_mol = Molecule.from_file(
-						f'{DATA_DIR}/systems/{input_dir}/{ligand_file}',
-						allow_undefined_stereo=True,
-					)
-					ligand_mol = assign_charges_with_fallback(ligand_mol)
-					pending_ligands.append((basename, ligand_mol))
+		pending_ligands = []  # (basename, ligand_mol)
+		for ligand_file in sorted(os.listdir(f'{DATA_DIR}/systems/{input_dir}')):
+			if ligand_file.endswith('.sdf'):
+				basename = ligand_file.replace('.sdf', '')
+				ligand_mol = Molecule.from_file(
+					f'{DATA_DIR}/systems/{input_dir}/{ligand_file}',
+					allow_undefined_stereo=True,
+				)
+				ligand_mol = assign_charges_with_fallback(ligand_mol)
+				pending_ligands.append((basename, ligand_mol))
 
-			# ---- Strip waters > 4 Å from any ligand heavy atom ----
-			n_removed = strip_distant_waters(
-    			modeller, [mol for _, mol in pending_ligands], cutoff_nm=0.4
-			)
-			logger.info(f"Stripped {n_removed} waters > 4 Å from any ligand atom")
+		# ---- Strip waters > 4 Å from any ligand heavy atom ----
+		n_removed = strip_distant_waters(
+    		modeller, [mol for _, mol in pending_ligands], cutoff_nm=0.4
+		)
+		logger.info(f"Stripped {n_removed} waters > 4 Å from any ligand atom")
 
-			# ---- Pass 2: add ligands; indices are now stable ----
-			ligand_molecules = []
-			ligand_entries = []
-			for basename, ligand_mol in pending_ligands:
-				ligand_molecules.append(ligand_mol)
-				ligand_topology = ligand_mol.to_topology().to_openmm()
-				ligand_positions = ligand_mol.conformers[0].to_openmm()
-				offset = modeller.topology.getNumAtoms()
-				n_atoms = ligand_topology.getNumAtoms()
-				modeller.add(ligand_topology, ligand_positions)
-				ligand_entries.append((basename, ligand_mol, list(range(offset, offset + n_atoms))))
+		# ---- Pass 2: add ligands; indices are now stable ----
+		ligand_molecules = []
+		ligand_entries = []
+		for basename, ligand_mol in pending_ligands:
+			ligand_molecules.append(ligand_mol)
+			ligand_topology = ligand_mol.to_topology().to_openmm()
+			ligand_positions = ligand_mol.conformers[0].to_openmm()
+			offset = modeller.topology.getNumAtoms()
+			n_atoms = ligand_topology.getNumAtoms()
+			modeller.add(ligand_topology, ligand_positions)
+			ligand_entries.append((basename, ligand_mol, list(range(offset, offset + n_atoms))))
 
 		# Merged set of all ligand indices (used for KDTree and restraints)
 		all_atoms = list(modeller.topology.atoms())
