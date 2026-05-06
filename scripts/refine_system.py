@@ -102,7 +102,7 @@ def _clean_file(pdb_path):
 		for line in f:
 			line = line.strip()
 			parts = line.split()
-			if parts[0] != 'HET':
+			if parts[0] not in {'HET', 'CRYST1'}:
 				lines_to_keep.append(line)
 
 	with open(pdb_path, 'w') as f:
@@ -376,37 +376,6 @@ def prepare_amber(tmp_dir, pdb_path, special_residues):
 
 	return modeller
 
-def prepare_amber_backup(tmp_dir, pdb_path, special_residues):
-	"""
-	Prepare modeller and force field list for special AMBER residues
-	"""
-
-	basename = pdb_path.split('/')[-1][:-4]
-
-	# DNA terminal renaming + 5'-phosphate stripping
-	capped_path = f'{tmp_dir}/{basename}_dnacap.pdb'
-	cap_dna_termini(pdb_path, capped_path)
-
-	Modeller.loadHydrogenDefinitions(f'{DATA_DIR}/custom_xml/protonation/special_residues_amber.xml')
-
-	fixer = PDBFixer(capped_path)
-	fixer.findMissingResidues()
-	fixer.findMissingAtoms()
-	fixer.addMissingAtoms()
-	fixer.addMissingHydrogens(PH)
-
-	logging.getLogger("openff").setLevel(logging.ERROR)
-
-	if special_residues:
-		Modeller.loadHydrogenDefinitions(f'{DATA_DIR}/custom_xml/protonation/special_residues_amber.xml')
-		modeller = Modeller(fixer.topology, fixer.positions)
-		modeller.addHydrogens(pH=PH)
-		add_bonds(modeller.topology, modeller.positions, special_residues)
-	else:
-		modeller = Modeller(fixer.topology, fixer.positions)
-
-	return modeller
-
 def get_rebuilt_ca_indices(original_pdb_path, topology, positions, tol_nm=0.005):
 	"""
 	Identify atoms belonging to residues that were rebuilt by PDBFixer.
@@ -527,7 +496,7 @@ def get_rebuilt_atom_indices(original_pdb_path, topology, positions, tol_nm=0.00
 			pos = np.asarray(positions[atom.index].value_in_unit(unit.nanometer))
 			dist, _ = tree.query(pos, k=1)
 			if dist > tol_nm:
-				rebuilt_atom_indices.update(a.index for a in residue.atoms())
+				rebuilt_atom_indices.add(atom.index)
 
 	return rebuilt_atom_indices
 
@@ -673,7 +642,6 @@ def _mutate_rebuilt_residues(pdb_path, input_dir):
 		if any(atom.index in rebuilt_atom_indices for atom in residue.atoms()):
 			fixer.nonstandardResidues.append((residue, 'GLY'))
 
-	print(fixer.nonstandardResidues)
 	if fixer.nonstandardResidues:
 		fixer.replaceNonstandardResidues()
 
@@ -749,8 +717,8 @@ def refine_system(input_dir):
 				modeller = Modeller(Topology(), [] * unit.nanometers)
 
 			# ====================================================================
-            # Step 3: Add ligands back with proper parameters
-            # ====================================================================
+			# Step 3: Add ligands back with proper parameters
+			# ====================================================================
 
 			# ---- Pass 1: read ligands and assign charges (don't add to modeller yet) ----
 			pending_ligands = []  # (basename, ligand_mol)
@@ -821,8 +789,8 @@ def refine_system(input_dir):
 			mobile_atoms = {i for i in np.where(mobile_mask)[0].tolist() if all_atoms[i].element.symbol != 'H'}
 
 			# ====================================================================
-            # STEP 5: Add restraints to both mobile and non-mobile atoms
-            # ====================================================================
+			# STEP 5: Add restraints to both mobile and non-mobile atoms
+			# ====================================================================
 
 			nonmobile_restraint = CustomExternalForce("k*r^2; r=sqrt((x-x0)^2+(y-y0)^2+(z-z0)^2)")
 			nonmobile_restraint.addGlobalParameter('k', FIX_STRENGTH * unit.kilojoules_per_mole / unit.nanometer**2)
@@ -940,8 +908,8 @@ def refine_system(input_dir):
 
 	except Exception as e:
 		print(f'{input_dir} - {e}')
-		#if os.path.isdir(f'{DATA_DIR}/processed_systems/{input_dir}'):
-		#	shutil.rmtree(f'{DATA_DIR}/processed_systems/{input_dir}')
+		if os.path.isdir(f'{DATA_DIR}/processed_systems/{input_dir}'):
+			shutil.rmtree(f'{DATA_DIR}/processed_systems/{input_dir}')
 		logger.exception(f"Refinement failed for {input_dir}")
 
 	finally:
@@ -987,8 +955,8 @@ def refine_system_backup(input_dir):
 			modeller = Modeller(Topology(), [] * unit.nanometers)
 
 		# ====================================================================
-        # Step 3: Add ligands back with proper parameters
-        # ====================================================================
+		# Step 3: Add ligands back with proper parameters
+		# ====================================================================
 
 		# ---- Pass 1: read ligands and assign charges (don't add to modeller yet) ----
 		pending_ligands = []  # (basename, ligand_mol)
@@ -1059,14 +1027,15 @@ def refine_system_backup(input_dir):
 		mobile_atoms = {i for i in np.where(mobile_mask)[0].tolist() if all_atoms[i].element.symbol != 'H'}
 
 		# ====================================================================
-        # STEP 5: Add restraints to both mobile and non-mobile atoms
-        # ====================================================================
+		# STEP 5: Add restraints to both mobile and non-mobile atoms
+		# ====================================================================
 
-		nonmobile_restraint = CustomExternalForce("k*r^2; r=sqrt((x-x0)^2+(y-y0)^2+(z-z0)^2)")
+		nonmobile_restraint = CustomExternalForce("k*r^2; r=sqrt((x-x0)^2+(y-y0)^2+(z-z0)^2+eps)")
 		nonmobile_restraint.addGlobalParameter('k', FIX_STRENGTH * unit.kilojoules_per_mole / unit.nanometer**2)
 		nonmobile_restraint.addPerParticleParameter("x0")
 		nonmobile_restraint.addPerParticleParameter("y0")
 		nonmobile_restraint.addPerParticleParameter("z0")
+		nonmobile_restraint.addGlobalParameter('eps', 1e-16 * unit.nanometer**2) # Some noise needed in distance calculation, because r=0 in first minimization step blows up system
 
 		# Continuously differentiable energy term. Flat-bottom tethering with smoothstep function
 		# Energy, force and second derivative at r=0.25 are 0.
@@ -1171,5 +1140,5 @@ def safe_refine_system(input_dir):
 
 if __name__ == '__main__':
 	subdir_list = os.listdir(f'{DATA_DIR}/systems')
-	safe_refine_system('1hk1_D')
-	#Parallel(n_jobs = 72, verbose = 10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)
+	#safe_refine_system('6aro_E')
+	Parallel(n_jobs = 72, verbose = 10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)
