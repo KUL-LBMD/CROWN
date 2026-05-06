@@ -376,41 +376,6 @@ def prepare_amber(tmp_dir, pdb_path, special_residues):
 
 	return modeller
 
-def prepare_amber_backup(tmp_dir, pdb_path, special_residues):
-	"""
-	Prepare modeller and force field list for special AMBER residues
-	"""
-
-	basename = pdb_path.split('/')[-1][:-4]
-
-	# DNA terminal renaming + 5'-phosphate stripping
-	capped_path = f'{tmp_dir}/{basename}_dnacap.pdb'
-	cap_dna_termini(pdb_path, capped_path)
-
-	# Add SEQRES with caps
-	seqres_path = f'{tmp_dir}/{basename}_seqres.pdb'
-	add_seqres_with_caps(capped_path, seqres_path)
-
-	Modeller.loadHydrogenDefinitions(f'{DATA_DIR}/custom_xml/protonation/special_residues_amber.xml')
-
-	fixer = PDBFixer(seqres_path)
-	fixer.findMissingResidues()
-	fixer.findMissingAtoms()
-	fixer.addMissingAtoms()
-	fixer.addMissingHydrogens(PH)
-
-	logging.getLogger("openff").setLevel(logging.ERROR)
-
-	if special_residues:
-		Modeller.loadHydrogenDefinitions(f'{DATA_DIR}/custom_xml/protonation/special_residues_amber.xml')
-		modeller = Modeller(fixer.topology, fixer.positions)
-		modeller.addHydrogens(pH=PH)
-		add_bonds(modeller.topology, modeller.positions, special_residues)
-	else:
-		modeller = Modeller(fixer.topology, fixer.positions)
-
-	return modeller
-
 def get_rebuilt_atom_indices(original_pdb_path, topology, positions, tol_nm=0.005):
 	"""
 	Identify atoms belonging to residues that were rebuilt by PDBFixer.
@@ -452,11 +417,11 @@ def get_rebuilt_atom_indices(original_pdb_path, topology, positions, tol_nm=0.00
 		return set()
 	
 	tree = KDTree(np.asarray(original_coords))
-	rebuilt_indices = set()
+	rebuilt_atom_indices = set()
 	for residue in topology.residues():
 		# ACE/NME caps and similar have no CA — always rebuilt
 		if residue.name in {'ACE', 'NME'}:
-			rebuilt_indices.update(a.index for a in residue.atoms())
+			rebuilt_atom_indices.update(a.index for a in residue.atoms())
 			continue
 
 		# Only protein residues are candidates for CA-based matching
@@ -466,123 +431,15 @@ def get_rebuilt_atom_indices(original_pdb_path, topology, positions, tol_nm=0.00
 		ca = next((a for a in residue.atoms() if a.name == 'CA'), None)
 		if ca is None:
 			# Protein residue with no CA shouldn't happen, but be safe
-			rebuilt_indices.update(a.index for a in residue.atoms())
+			rebuilt_atom_indices.update(a.index for a in residue.atoms())
 			continue
 
 		ca_pos = np.asarray(positions[ca.index].value_in_unit(unit.nanometer))
 		dist, _ = tree.query(ca_pos, k=1)
 		if dist > tol_nm:
-			rebuilt_indices.update(a.index for a in residue.atoms())
+			rebuilt_atom_indices.update(a.index for a in residue.atoms())
 
-	return rebuilt_indices
-
-def _split_chains_at_breaks(topology, positions, peptide_bond_max_nm=0.2):
-    """
-    Rebuild `topology` so that protein chains are split wherever the peptide
-    bond between consecutive residues is broken (C(i)-N(i+1) > cutoff).
-    Non-protein chains pass through unchanged.
-
-    Parameters
-    ----------
-    topology : openmm.app.Topology
-    positions : array-like of Quantity (length = topology.getNumAtoms())
-    peptide_bond_max_nm : float
-        C-N distance threshold (nm). Real peptide bonds are ~0.133 nm;
-        0.2 nm gives generous slack.
-
-    Returns
-    -------
-    (Topology, list[Quantity])
-        A new topology and matching positions with new chain assignments.
-    """
-    pos_nm = np.array([p.value_in_unit(unit.nanometer) for p in positions])
-
-    # Find unused single-character chain IDs to draw from
-    used = {c.id for c in topology.chains()}
-    pool = [c for c in (string.ascii_uppercase + string.ascii_lowercase
-                        + string.digits) if c not in used]
-    pool_iter = iter(pool)
-
-    new_top = Topology()
-    box = topology.getPeriodicBoxVectors()
-    if box is not None:
-        new_top.setPeriodicBoxVectors(box)
-
-    atom_map = {}
-    new_positions_nm = []  # plain floats in nm; wrap as Quantity at the end
-
-    for old_chain in topology.chains():
-        residues = list(old_chain.residues())
-        if not residues:
-            continue
-        current_chain = new_top.addChain(id=old_chain.id)
-
-        for i, r in enumerate(residues):
-            if i > 0:
-                prev = residues[i - 1]
-                if (r.name in STANDARD_AMINO_ACIDS
-                        and prev.name in STANDARD_AMINO_ACIDS):
-                    prev_C = next((a for a in prev.atoms() if a.name == 'C'), None)
-                    this_N = next((a for a in r.atoms() if a.name == 'N'), None)
-                    if prev_C is not None and this_N is not None:
-                        d = np.linalg.norm(
-                            pos_nm[prev_C.index] - pos_nm[this_N.index]
-                        )
-                        if d > peptide_bond_max_nm:
-                            try:
-                                new_id = next(pool_iter)
-                            except StopIteration:
-                                raise RuntimeError(
-                                    "Ran out of single-character chain IDs"
-                                )
-                            current_chain = new_top.addChain(id=new_id)
-
-            new_res = new_top.addResidue(
-                r.name, current_chain, id=r.id, insertionCode=r.insertionCode
-            )
-            for a in r.atoms():
-                new_a = new_top.addAtom(a.name, a.element, new_res, id=a.id)
-                atom_map[a] = new_a
-                new_positions_nm.append(pos_nm[a.index])
-
-    for bond in topology.bonds():
-        a1, a2 = bond[0], bond[1]
-        if a1 in atom_map and a2 in atom_map:
-            new_top.addBond(
-                atom_map[a1], atom_map[a2],
-                type=bond.type, order=bond.order,
-            )
-
-    new_positions = unit.Quantity(np.array(new_positions_nm), unit.nanometer)
-    return new_top, new_positions
-
-def _remove_rebuilt_residues(pdb_path, input_dir):
-    fixer = PDBFixer(pdb_path)
-    modeller = Modeller(fixer.topology, fixer.positions)
-
-    original_path = f'{DATA_DIR}/pdb/raw/{input_dir}.pdb'
-    rebuilt_indices = get_rebuilt_atom_indices(
-        original_path, modeller.topology, modeller.positions
-    )
-    atoms_to_delete = [
-        a for a in modeller.topology.atoms() if a.index in rebuilt_indices
-    ]
-    if atoms_to_delete:
-        modeller.delete(atoms_to_delete)
-
-    n_chains_before = modeller.topology.getNumChains()
-    new_top, new_pos = _split_chains_at_breaks(
-        modeller.topology, modeller.positions
-    )
-    n_chains_after = new_top.getNumChains()
-    if n_chains_after > n_chains_before:
-        print(
-            f"{input_dir}: split {n_chains_after - n_chains_before} chain(s) "
-            f"at internal breaks from rebuilt-residue removal"
-        )
-
-    with open(pdb_path, 'w') as f:
-        PDBFile.writeFile(new_top, new_pos, f)
+	return rebuilt_atom_indices
 
 def strip_distant_waters(modeller, ligand_molecules, cutoff_nm=0.4):
     """
@@ -635,6 +492,26 @@ def strip_distant_waters(modeller, ligand_molecules, cutoff_nm=0.4):
     if waters_to_remove:
         modeller.delete(waters_to_remove)
     return len(waters_to_remove)
+
+def _mutate_rebuilt_residues(pdb_path, input_dir):
+
+	fixer = PDBFixer(pdb_path)
+	input_pdb = f'{DATA_DIR}/pdb/fixed/{input_dir}.pdb'
+	rebuilt_atom_indices = get_rebuilt_atom_indices(input_pdb, fixer.topology, fixer.positions)
+	fixer.nonstandardResidues = []
+	for residue in fixer.topology.residues():
+		if any(atom.index in rebuilt_atom_indices for atom in residue.atoms()):
+			fixer.nonstandardResidues.append((residue, 'ALA'))
+
+	if fixer.nonstandardResidues:
+		fixer.replaceNonstandardResidues()
+
+	fixer.findMissingResidues()
+	fixer.findMissingAtoms()
+	fixer.addMissingAtoms()
+
+	with open(pdb_path, 'w') as f:
+		PDBFile.writeFile(fixer.topology, fixer.positions, f)
 
 @timeout(seconds=900)
 def refine_system(input_dir):
@@ -911,9 +788,9 @@ def refine_system_backup(input_dir):
 		if pdb_length > 10:
 			_clean_file(pdb_path)
 			rename_single_atom_residues(pdb_path)  # fix single-atom LIG/UNK/UNL residues
-			_remove_rebuilt_residues(pdb_path, input_dir)
+			_mutate_rebuilt_residues(pdb_path, input_dir)
 			special_residues = find_cofactors(pdb_path)
-			modeller = prepare_amber_backup(tmp_dir, pdb_path, special_residues)
+			modeller = prepare_amber(tmp_dir, pdb_path, special_residues)
 		else:
 			modeller = Modeller(Topology(), [] * unit.nanometers)
 
