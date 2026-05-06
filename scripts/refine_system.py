@@ -501,7 +501,7 @@ def _mutate_rebuilt_residues(pdb_path, input_dir):
 	fixer.nonstandardResidues = []
 	for residue in fixer.topology.residues():
 		if any(atom.index in rebuilt_atom_indices for atom in residue.atoms()):
-			fixer.nonstandardResidues.append((residue, 'ALA'))
+			fixer.nonstandardResidues.append((residue, 'GLY'))
 
 	if fixer.nonstandardResidues:
 		fixer.replaceNonstandardResidues()
