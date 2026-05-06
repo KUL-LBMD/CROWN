@@ -496,7 +496,7 @@ def strip_distant_waters(modeller, ligand_molecules, cutoff_nm=0.4):
 def _mutate_rebuilt_residues(pdb_path, input_dir):
 
 	fixer = PDBFixer(pdb_path)
-	input_pdb = f'{DATA_DIR}/pdb/fixed/{input_dir}.pdb'
+	input_pdb = f'{DATA_DIR}/pdb/raw/{input_dir}.pdb'
 	rebuilt_atom_indices = get_rebuilt_atom_indices(input_pdb, fixer.topology, fixer.positions)
 	fixer.nonstandardResidues = []
 	for residue in fixer.topology.residues():
@@ -748,8 +748,8 @@ def refine_system(input_dir):
 
 	except Exception as e:
 		print(f'{input_dir} - {e}')
-		if os.path.isdir(f'{DATA_DIR}/processed_systems/{input_dir}'):
-			shutil.rmtree(f'{DATA_DIR}/processed_systems/{input_dir}')
+		#if os.path.isdir(f'{DATA_DIR}/processed_systems/{input_dir}'):
+		#	shutil.rmtree(f'{DATA_DIR}/processed_systems/{input_dir}')
 		logger.exception(f"Refinement failed for {input_dir}")
 
 	finally:
@@ -975,5 +975,5 @@ def safe_refine_system(input_dir):
 
 if __name__ == '__main__':
 	subdir_list = os.listdir(f'{DATA_DIR}/systems')
-	#safe_refine_system('6aro_E')
-	Parallel(n_jobs = 72, verbose = 10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)
+	safe_refine_system('1hk1_D')
+	#Parallel(n_jobs = 72, verbose = 10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)
