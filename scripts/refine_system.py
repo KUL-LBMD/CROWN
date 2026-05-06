@@ -673,6 +673,7 @@ def _mutate_rebuilt_residues(pdb_path, input_dir):
 		if any(atom.index in rebuilt_atom_indices for atom in residue.atoms()):
 			fixer.nonstandardResidues.append((residue, 'GLY'))
 
+	print(fixer.nonstandardResidues)
 	if fixer.nonstandardResidues:
 		fixer.replaceNonstandardResidues()
 
@@ -981,7 +982,7 @@ def refine_system_backup(input_dir):
 			rename_single_atom_residues(pdb_path)  # fix single-atom LIG/UNK/UNL residues
 			_mutate_rebuilt_residues(pdb_path, input_dir)
 			special_residues = find_cofactors(pdb_path)
-			modeller = prepare_amber_backup(tmp_dir, pdb_path, special_residues)
+			modeller = prepare_amber(tmp_dir, pdb_path, special_residues)
 		else:
 			modeller = Modeller(Topology(), [] * unit.nanometers)
 
@@ -1130,6 +1131,10 @@ def refine_system_backup(input_dir):
 		forces = state.getForces(asNumpy=True).value_in_unit(
 			unit.kilojoule_per_mole/unit.nanometer
 		)
+
+		fmag = np.linalg.norm(forces, axis=1)
+		n_nan = np.isnan(fmag).sum()
+		print(n_nan)
 
 		simulation.minimizeEnergy(maxIterations = MINIMIZATION_STEPS)
 
