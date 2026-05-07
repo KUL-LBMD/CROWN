@@ -4,12 +4,11 @@ import os
 import shutil
 import tempfile
 import numpy as np
-import string
  
 from scipy.spatial import KDTree
 from pdbfixer import PDBFixer
 from openmmforcefields.generators import SystemGenerator
-from openmm.app import PDBFile, Modeller, Topology, ForceField, Simulation
+from openmm.app import PDBFile, Modeller, Topology, Simulation, CutoffNonPeriodic
 from openff.toolkit import Molecule
 from openff.units import unit as openff_unit
 from openff.nagl_models import list_available_nagl_models
@@ -20,6 +19,7 @@ from joblib import Parallel, delayed
  
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 import functools
+import xml.etree.ElementTree as ET
  
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -216,55 +216,107 @@ def _find_cofactors(pdb_path):
 
 	return amber_residues
 
-def _add_bonds(topology, positions, resname_set):
-    """Add missing bonds for residues based on interatomic distances."""
-    metal_set = {'Fe', 'Mn', 'Mg', 'Ni', 'Zn', 'Cu'}
-
-    for residue in topology.residues():
-        for resname in resname_set:
-            if residue.name != resname:
+def _load_bond_templates(forcefield_paths, resname_filter=None):
+    """
+    Parse OpenMM-format forcefield XMLs and extract intra-residue bond
+    definitions keyed by residue name.
+ 
+    Only paths that resolve to an actual file on disk are parsed - bare
+    Amber/CHARMM names like 'amber19/protein.ff19SB.xml' are resolved
+    internally by OpenMM's data path and are skipped here.
+ 
+    Parameters
+    ----------
+    forcefield_paths : iterable of str
+        Candidate XML paths (typically FORCEFIELD_LIST).
+    resname_filter : set[str] or None
+        If given, only residues whose name is in this set are loaded.
+ 
+    Returns
+    -------
+    dict[str, list[tuple[str, str]]]
+        {resname: [(atom_name_a, atom_name_b), ...]}
+    """
+    templates = {}
+    for path in forcefield_paths:
+        if not os.path.isfile(path):
+            continue
+        try:
+            tree = ET.parse(path)
+        except ET.ParseError as e:
+            logger.warning(f"Could not parse forcefield XML '{path}': {e}")
+            continue
+ 
+        root = tree.getroot()
+        for residue in root.findall('.//Residues/Residue'):
+            resname = residue.get('name')
+            if resname is None:
                 continue
-
-            atoms = list(residue.atoms())
-            pos = np.array([(positions[a.index].x, positions[a.index].y, positions[a.index].z) 
-                        for a in atoms])
-
-            # Collect existing bonds to avoid duplicates
-            existing_bonds = set()
-            for bond in topology.bonds():
-                existing_bonds.add((bond[0].index, bond[1].index))
-                existing_bonds.add((bond[1].index, bond[0].index))
-
-            for i in range(len(atoms)):
-                for j in range(i + 1, len(atoms)):
-
-                    if (atoms[i].index, atoms[j].index) in existing_bonds:
-                        continue
-
-                    dist = np.linalg.norm(pos[i] - pos[j])  # already in nm from OpenMM
-
-                    ei = atoms[i].element.symbol
-                    ej = atoms[j].element.symbol
-
-                    if ei == 'H' and ej == 'H':
-                        continue
-
-                    elif ei in metal_set and ej in metal_set:
-                        continue
-
-                    elif ei == 'H' or ej == 'H':
-                        if not ei in metal_set and not ej in metal_set:
-                            if dist < 0.12:
-                                topology.addBond(atoms[i], atoms[j])
-
-                    # Fe-N bonds are ~2.0 Å
-                    elif ei in metal_set or ej in metal_set:
-                        if dist < 0.27:  # 2.7 Å in nm
-                            topology.addBond(atoms[i], atoms[j])
-
-                    # C-C, C-N, C-O bonds are ~1.2-1.55 Å
-                    elif dist < 0.18:
-                        topology.addBond(atoms[i], atoms[j])
+            if resname_filter is not None and resname not in resname_filter:
+                continue
+ 
+            bonds = []
+            for bond in residue.findall('Bond'):
+                # OpenMM forcefield XMLs use atomName1/atomName2;
+                # residue-definition XMLs use from/to. Accept either.
+                a = bond.get('atomName1') or bond.get('from')
+                b = bond.get('atomName2') or bond.get('to')
+                if a and b:
+                    bonds.append((a, b))
+ 
+            if bonds:
+                templates.setdefault(resname, []).extend(bonds)
+ 
+    return templates
+ 
+def _add_bonds(topology, resname_set, bond_templates):
+    """
+    Add missing intra-residue bonds for the requested residues, using bond
+    definitions parsed from forcefield XML templates (matched by atom name).
+ 
+    Parameters
+    ----------
+    topology : openmm.app.Topology
+    resname_set : set[str]
+        Residue names to process (e.g. METALLOCOFACTORS).
+    bond_templates : dict[str, list[tuple[str, str]]]
+        Output of _load_bond_templates().
+    """
+    # Symmetric lookup of existing bonds
+    existing = {frozenset((b[0].index, b[1].index)) for b in topology.bonds()}
+ 
+    n_added = 0
+    n_missing_atom = 0
+    for residue in topology.residues():
+        if residue.name not in resname_set:
+            continue
+        if residue.name not in bond_templates:
+            logger.warning(
+                f"No bond template found for residue '{residue.name}' in any "
+                f"forcefield XML; skipping bond reconstruction for this residue."
+            )
+            continue
+ 
+        atoms_by_name = {atom.name: atom for atom in residue.atoms()}
+        for a_name, b_name in bond_templates[residue.name]:
+            a = atoms_by_name.get(a_name)
+            b = atoms_by_name.get(b_name)
+            if a is None or b is None:
+                n_missing_atom += 1
+                continue
+            key = frozenset((a.index, b.index))
+            if key in existing:
+                continue
+            topology.addBond(a, b)
+            existing.add(key)
+            n_added += 1
+ 
+    if n_missing_atom:
+        logger.warning(
+            f"_add_bonds: {n_missing_atom} bond definition(s) skipped "
+            f"because the atom name was not found in the topology"
+        )
+    logger.info(f"_add_bonds: added {n_added} bond(s) from forcefield templates")
 
 def _add_seqres_with_caps(input_pdb: str, output_pdb: str):
 	"""
@@ -384,82 +436,18 @@ def _prepare_amber(tmp_dir, pdb_path, special_residues):
 		Modeller.loadHydrogenDefinitions(f'{DATA_DIR}/custom_xml/protonation/special_residues_amber.xml')
 		modeller = Modeller(fixer.topology, fixer.positions)
 		modeller.addHydrogens(pH=PH)
-		_add_bonds(modeller.topology, modeller.positions, special_residues)
+		bond_templates = _load_bond_templates(FORCEFIELD_LIST, resname_filter=special_residues)
+		_add_bonds(modeller.topology, special_residues, bond_templates)
 	else:
 		modeller = Modeller(fixer.topology, fixer.positions)
 
 	return modeller
 
-def _get_rebuilt_ca_indices(original_pdb_path, topology, positions, tol_nm=0.005):
-	"""
-	Identify atoms belonging to residues that were rebuilt by PDBFixer.
-
-	A residue is considered 'rebuilt' if its CA atom is not present at the same
-	coordinates in the original PDB. ACE/NME caps and any other residues without
-	a CA atom in the new topology are also treated as rebuilt.
-
-	Parameters
-	----------
-	original_pdb_path : str
-		Path to the un-fixed PDB (coordinates in Angstroms).
-	topology : openmm.app.Topology
-		Current (post-PDBFixer) topology.
-	positions : list of openmm.Vec3 with units
-		Current positions matching `topology`.
-    tol_nm : float
-        Max distance (nm) for matching a CA against the original.
-        Default 0.05 nm = 0.5 Å, which is generous given PDBFixer doesn't
-        perturb existing atoms.
-
-    Returns
-    -------
-    set[int]
-        Atom indices in `topology` belonging to rebuilt residues.
-    """
-    
-	original_coords = []
-	with open(original_pdb_path, 'r') as f:
-		for line in f:
-			if line.startswith(('HETATM', 'ATOM')):
-				x = float(line[30:38]) * 0.1
-				y = float(line[38:46]) * 0.1
-				z = float(line[46:54]) * 0.1
-				if line[12:16].strip() == 'CA':
-					original_coords.append((x,y,z))
-
-	if not original_coords:
-		return set()
-	
-	tree = KDTree(np.asarray(original_coords))
-	rebuilt_atom_indices = set()
-	for residue in topology.residues():
-		# ACE/NME caps and similar have no CA — always rebuilt
-		if residue.name in {'ACE', 'NME'}:
-			rebuilt_atom_indices.update(a.index for a in residue.atoms())
-			continue
-
-		# Only protein residues are candidates for CA-based matching
-		if residue.name not in STANDARD_AMINO_ACIDS:
-			continue
-
-		ca = next((a for a in residue.atoms() if a.name == 'CA'), None)
-		if ca is None:
-			# Protein residue with no CA shouldn't happen, but be safe
-			rebuilt_atom_indices.update(a.index for a in residue.atoms())
-			continue
-
-		ca_pos = np.asarray(positions[ca.index].value_in_unit(unit.nanometer))
-		dist, _ = tree.query(ca_pos, k=1)
-		if dist > tol_nm:
-			rebuilt_atom_indices.update(a.index for a in residue.atoms())
-
-	return rebuilt_atom_indices
-
 def _get_rebuilt_atom_indices(original_pdb_path, topology, positions, tol_nm=0.005):
 	"""
-	Identify atoms belonging to residues that were rebuilt by PDBFixer.
+	Identify atoms that were rebuilt by PDBFixer.
 
-	A residue is considered 'rebuilt' if its CA atom is not present at the same
+	An atom is considered 'rebuilt' if it is not present at the same
 	coordinates in the original PDB. ACE/NME caps and any other residues without
 	a CA atom in the new topology are also treated as rebuilt.
 
@@ -566,127 +554,6 @@ def _strip_distant_waters(modeller, ligand_molecules, cutoff_nm=0.4):
         modeller.delete(waters_to_remove)
     return len(waters_to_remove)
 
-def _split_chains_at_breaks(topology, positions, peptide_bond_max_nm=0.2):
-    """
-    Rebuild `topology` so that protein chains are split wherever the peptide
-    bond between consecutive residues is broken (C(i)-N(i+1) > cutoff).
-    Non-protein chains pass through unchanged.
-
-    Parameters
-    ----------
-    topology : openmm.app.Topology
-    positions : array-like of Quantity (length = topology.getNumAtoms())
-    peptide_bond_max_nm : float
-        C-N distance threshold (nm). Real peptide bonds are ~0.133 nm;
-        0.2 nm gives generous slack.
-
-    Returns
-    -------
-    (Topology, list[Quantity])
-        A new topology and matching positions with new chain assignments.
-    """
-    pos_nm = np.array([p.value_in_unit(unit.nanometer) for p in positions])
-
-    # Find unused single-character chain IDs to draw from
-    used = {c.id for c in topology.chains()}
-    pool = [c for c in (string.ascii_uppercase + string.ascii_lowercase
-                        + string.digits) if c not in used]
-    pool_iter = iter(pool)
-
-    new_top = Topology()
-    box = topology.getPeriodicBoxVectors()
-    if box is not None:
-        new_top.setPeriodicBoxVectors(box)
-
-    atom_map = {}
-    new_positions_nm = []  # plain floats in nm; wrap as Quantity at the end
-
-    for old_chain in topology.chains():
-        residues = list(old_chain.residues())
-        if not residues:
-            continue
-        current_chain = new_top.addChain(id=old_chain.id)
-
-        for i, r in enumerate(residues):
-            if i > 0:
-                prev = residues[i - 1]
-                if (r.name in STANDARD_AMINO_ACIDS
-                        and prev.name in STANDARD_AMINO_ACIDS):
-                    prev_C = next((a for a in prev.atoms() if a.name == 'C'), None)
-                    this_N = next((a for a in r.atoms() if a.name == 'N'), None)
-                    if prev_C is not None and this_N is not None:
-                        d = np.linalg.norm(
-                            pos_nm[prev_C.index] - pos_nm[this_N.index]
-                        )
-                        if d > peptide_bond_max_nm:
-                            try:
-                                new_id = next(pool_iter)
-                            except StopIteration:
-                                raise RuntimeError(
-                                    "Ran out of single-character chain IDs"
-                                )
-                            current_chain = new_top.addChain(id=new_id)
-
-            new_res = new_top.addResidue(
-                r.name, current_chain, id=r.id, insertionCode=r.insertionCode
-            )
-            for a in r.atoms():
-                new_a = new_top.addAtom(a.name, a.element, new_res, id=a.id)
-                atom_map[a] = new_a
-                new_positions_nm.append(pos_nm[a.index])
-
-    for bond in topology.bonds():
-        a1, a2 = bond[0], bond[1]
-        if a1 in atom_map and a2 in atom_map:
-            new_top.addBond(
-                atom_map[a1], atom_map[a2],
-                type=bond.type, order=bond.order,
-            )
-
-    new_positions = unit.Quantity(np.array(new_positions_nm), unit.nanometer)
-    return new_top, new_positions
-
-def _mutate_rebuilt_residues(pdb_path, input_dir):
-
-	fixer = PDBFixer(pdb_path)
-	input_pdb = f'{DATA_DIR}/pdb/raw/{input_dir}.pdb'
-	rebuilt_atom_indices = _get_rebuilt_atom_indices(input_pdb, fixer.topology, fixer.positions)
-	fixer.nonstandardResidues = []
-	for residue in fixer.topology.residues():
-		if any(atom.index in rebuilt_atom_indices for atom in residue.atoms()):
-			fixer.nonstandardResidues.append((residue, 'GLY'))
-
-	if fixer.nonstandardResidues:
-		fixer.replaceNonstandardResidues()
-
-	fixer.findMissingResidues()
-	fixer.findMissingAtoms()
-	fixer.addMissingAtoms()
-
-	modeller = Modeller(fixer.topology, fixer.positions)
-	rebuilt_ca_indices = _get_rebuilt_ca_indices(input_pdb, modeller.topology, modeller.positions)
-	residues_to_delete = []
-	for residue in fixer.topology.residues():
-		if any(atom.index in rebuilt_ca_indices for atom in residue.atoms()):
-			residues_to_delete.append(residue)
-
-	modeller.delete(residues_to_delete)
-
-	# Handle chain breaks
-	n_chains_before = modeller.topology.getNumChains()
-	new_top, new_pos = _split_chains_at_breaks(
-		modeller.topology, modeller.positions
-	)
-	n_chains_after = new_top.getNumChains()
-	if n_chains_after > n_chains_before:
-		print(
-			f"{input_dir}: split {n_chains_after - n_chains_before} chain(s) "
-			f"at internal breaks from rebuilt-residue removal"
-		)
-
-	with open(pdb_path, 'w') as f:
-		PDBFile.writeFile(new_top, new_pos, f)
-
 # ===================================================
 # Stage helpers
 # ===================================================
@@ -770,11 +637,10 @@ def _build_restraints():
 	Construct the two CustomExternalForce objects used to restrain the system.
 	"""
  
-	nonmobile_restraint = CustomExternalForce("k*r^2; r=sqrt((x-x0)^2+(y-y0)^2+(z-z0)^2+eps)")
+	nonmobile_restraint = CustomExternalForce("k*((x-x0)^2+(y-y0)^2+(z-z0)^2)")
 	nonmobile_restraint.addGlobalParameter(
 		'k', FIX_STRENGTH * unit.kilojoules_per_mole / unit.nanometer**2
 	)
-	nonmobile_restraint.addGlobalParameter('eps', 1e-16 * unit.nanometer**2)
 	nonmobile_restraint.addPerParticleParameter("x0")
 	nonmobile_restraint.addPerParticleParameter("y0")
 	nonmobile_restraint.addPerParticleParameter("z0")
@@ -834,18 +700,6 @@ def _build_simulation(modeller, system):
 	simulation.context.setPositions(modeller.positions)
 	return simulation
 
-def _has_nan_forces(simulation):
-	"""True if any atom carries a NaN force in the initial state."""
-	state = simulation.context.getState(getForces=True)
-	forces = state.getForces(asNumpy=True).value_in_unit(
-		unit.kilojoule_per_mole / unit.nanometer
-	)
-	fmag = np.linalg.norm(forces, axis=1)
-	n_nan = int(np.isnan(fmag).sum())
-	if n_nan:
-		logger.warning(f"Detected NaN forces on {n_nan} atoms before minimization")
-	return n_nan > 0
-
 def _save_outputs(modeller, minimized_positions, ligand_entries, out_dir):
 	"""Write minimized PDB and per-ligand SDFs."""
 	pdb_modeller = Modeller(modeller.topology, minimized_positions)
@@ -865,7 +719,7 @@ def _save_outputs(modeller, minimized_positions, ligand_entries, out_dir):
 # Main refinement pipeline
 # ===================================================
 
-@timeout(seconds=3600)
+@timeout(seconds=900)
 def refine_system(input_dir):
 	"""
 	Structure refinement workflow:
@@ -873,10 +727,6 @@ def refine_system(input_dir):
     2. Combine full PLI system
     3. Add additional forces
     4. Run constrained energy minimization
- 
-	If the primary strategy produces NaN forces in the initial state, falls back
-	to a more aggressive strategy that mutates PDBFixer-rebuilt residues to GLY
-	before parametrization.
 	"""
  
 	handler = logging.FileHandler(DATA_DIR / 'logs' / f'{input_dir}.log')
@@ -890,13 +740,70 @@ def refine_system(input_dir):
  
 	try:
 		with tempfile.TemporaryDirectory() as tmp_dir:
-			minimized = _refine_with_strategy(input_dir, tmp_dir, strategy='primary')
-			if not minimized:
-				print(
-					f"Primary refinement produced NaN forces for {input_dir}; "
-					f"retrying with fallback strategy (mutate rebuilt residues to GLY)"
-				)
-				_refine_with_strategy(input_dir, tmp_dir, strategy='fallback')
+            # ------- Step 2: Build protein-only modeller -------
+			pdb_path = f'{DATA_DIR}/systems/{input_dir}/receptor.pdb'
+ 
+			if _get_file_length(pdb_path) > 10:
+				_clean_file(pdb_path)
+				_rename_single_atom_residues(pdb_path)
+				special_residues = _find_cofactors(pdb_path)
+				modeller = _prepare_amber(tmp_dir, pdb_path, special_residues)
+			else:
+				modeller = Modeller(Topology(), [] * unit.nanometers)
+		
+			# ------- Step 3: Add ligands -------
+			ligand_entries, ligand_molecules = _add_ligands_to_modeller(modeller, input_dir)
+			all_atoms = list(modeller.topology.atoms())
+			ligand_indices = _collect_ligand_and_cofactor_indices(modeller, ligand_entries, all_atoms)
+		
+			# Explicitly mark topology as non-periodic.
+			modeller.topology.setPeriodicBoxVectors(None)
+
+			system_generator = SystemGenerator(
+				forcefields=FORCEFIELD_LIST,  # IMPLICIT WATER MODEL ADDED https://github.com/openmm/openmm/issues/3364
+				small_molecule_forcefield='openff-2.2.0',
+				molecules=ligand_molecules,
+				forcefield_kwargs={
+					'nonbondedMethod': CutoffNonPeriodic,
+					'nonbondedCutoff': MOBILE_RADIUS * unit.nanometer,
+				}
+			)
+			# Remove duplicate entries: TL1 / Tl, FE2 / FE
+			system_generator.forcefield = _clean_ff(system_generator.forcefield)
+			system = system_generator.create_system(modeller.topology)
+		
+			# ------- Step 4: Identify mobile region around ligands -------
+			mobile_atoms = _compute_mobile_atoms(modeller, ligand_indices, all_atoms)
+		
+			# ------- Step 5: Build & apply restraints -------
+			# Primary: skip rebuilt atoms (they need to relax freely).
+			# Fallback: rebuilt residues are already GLY, so restrain everything.
+			original_path = f'{DATA_DIR}/pdb/raw/{input_dir}.pdb'
+			skip_indices = _get_rebuilt_atom_indices(
+				original_path, modeller.topology, modeller.positions
+			)
+			logger.info(f"Skipping restraints on {len(skip_indices)} rebuilt atoms")
+		
+			nonmobile_restraint, mobile_restraint = _build_restraints()
+			_populate_restraints(
+				modeller, mobile_atoms, skip_indices,
+				nonmobile_restraint, mobile_restraint,
+			)
+			system.addForce(nonmobile_restraint)
+			system.addForce(mobile_restraint)
+		
+			# ------- Step 6: Build simulation, save snapshot, NaN check, minimize -------
+			out_dir = DATA_DIR / 'processed_systems' / input_dir
+			os.makedirs(out_dir, exist_ok=True)
+			with open(out_dir / 'system_protonated.pdb', 'w') as f:
+				PDBFile.writeFile(modeller.topology, modeller.positions, f)
+		
+			simulation = _build_simulation(modeller, system)
+			simulation.minimizeEnergy(maxIterations=MINIMIZATION_STEPS)
+		
+			# ------- Step 7: Save outputs -------
+			state = simulation.context.getState(getEnergy=True, getPositions=True)
+			_save_outputs(modeller, state.getPositions(), ligand_entries, out_dir)
  
 	except Exception as e:
 		print(f'{input_dir} - {e}')
@@ -907,105 +814,11 @@ def refine_system(input_dir):
 	finally:
 		logger.removeHandler(handler)
 		handler.close()
-            
-def _refine_with_strategy(input_dir, tmp_dir, strategy):
-	"""
-	Run the refinement pipeline once with one of two strategies.
- 
-	Parameters
-	----------
-	input_dir : str
-		Subdirectory of DATA_DIR/systems/ to process.
-	tmp_dir : str
-		Working directory for intermediate PDBs.
-	strategy : {'primary', 'fallback'}
-		'primary'  - trust PDBFixer-rebuilt residues; skip restraints on them.
-		'fallback' - mutate rebuilt residues to GLY before parametrization,
-		             restrain *all* heavy atoms, and stabilize the non-mobile
-		             restraint with an eps term inside the sqrt.
- 
-	Returns
-	-------
-	bool
-		True if minimization completed; False if NaN forces were detected
-		before minimization. The fallback strategy always returns True
-		(it does not check for NaN, matching original behavior).
-	"""
-	
-	if strategy not in {'primary', 'fallback'}:
-		raise ValueError(f"Unknown strategy: {strategy!r}")
-	is_fallback = (strategy == 'fallback')
- 
-	# ------- Step 2: Build protein-only modeller -------
-	pdb_path = f'{DATA_DIR}/systems/{input_dir}/receptor.pdb'
- 
-	if _get_file_length(pdb_path) > 10:
-		_clean_file(pdb_path)
-		_rename_single_atom_residues(pdb_path)
-		if is_fallback:
-			_mutate_rebuilt_residues(pdb_path, input_dir)
-		special_residues = _find_cofactors(pdb_path)
-		modeller = _prepare_amber(tmp_dir, pdb_path, special_residues)
-	else:
-		modeller = Modeller(Topology(), [] * unit.nanometers)
- 
-	# ------- Step 3: Add ligands -------
-	ligand_entries, ligand_molecules = _add_ligands_to_modeller(modeller, input_dir)
-	all_atoms = list(modeller.topology.atoms())
-	ligand_indices = _collect_ligand_and_cofactor_indices(modeller, ligand_entries, all_atoms)
- 
-	system_generator = SystemGenerator(
-		forcefields=FORCEFIELD_LIST,  # IMPLICIT WATER MODEL ADDED https://github.com/openmm/openmm/issues/3364
-		small_molecule_forcefield='openff-2.2.0',
-		molecules=ligand_molecules,
-	)
-	# Remove duplicate entries: TL1 / Tl, FE2 / FE
-	system_generator.forcefield = _clean_ff(system_generator.forcefield)
-	system = system_generator.create_system(modeller.topology)
- 
-	# ------- Step 4: Identify mobile region around ligands -------
-	mobile_atoms = _compute_mobile_atoms(modeller, ligand_indices, all_atoms)
- 
-	# ------- Step 5: Build & apply restraints -------
-	# Primary: skip rebuilt atoms (they need to relax freely).
-	# Fallback: rebuilt residues are already GLY, so restrain everything.
-	original_path = f'{DATA_DIR}/pdb/raw/{input_dir}.pdb'
-	skip_indices = _get_rebuilt_atom_indices(
-		original_path, modeller.topology, modeller.positions
-	)
-	logger.info(f"Skipping restraints on {len(skip_indices)} rebuilt atoms")
- 
-	nonmobile_restraint, mobile_restraint = _build_restraints()
-	_populate_restraints(
-		modeller, mobile_atoms, skip_indices,
-		nonmobile_restraint, mobile_restraint,
-	)
-	system.addForce(nonmobile_restraint)
-	system.addForce(mobile_restraint)
- 
-	# ------- Step 6: Build simulation, save snapshot, NaN check, minimize -------
-	out_dir = DATA_DIR / 'processed_systems' / input_dir
-	os.makedirs(out_dir, exist_ok=True)
-	with open(out_dir / 'system_protonated.pdb', 'w') as f:
-		PDBFile.writeFile(modeller.topology, modeller.positions, f)
- 
-	simulation = _build_simulation(modeller, system)
- 
-	if not is_fallback and _has_nan_forces(simulation):
-		# Bail out early; refine_system() will retry with fallback strategy.
-		return False
- 
-	simulation.minimizeEnergy(maxIterations=MINIMIZATION_STEPS)
- 
-	# ------- Step 7: Save outputs -------
-	state = simulation.context.getState(getEnergy=True, getPositions=True)
-	_save_outputs(modeller, state.getPositions(), ligand_entries, out_dir)
-	return True
 
 # ============================================================================
 # Driver
 # ============================================================================
-
+ 
 def safe_refine_system(input_dir):
 	try:
 		refine_system(input_dir)
