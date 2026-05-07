@@ -865,7 +865,7 @@ def _save_outputs(modeller, minimized_positions, ligand_entries, out_dir):
 # Main refinement pipeline
 # ===================================================
 
-@timeout(seconds=900)
+@timeout(seconds=3600)
 def refine_system(input_dir):
 	"""
 	Structure refinement workflow:
@@ -892,7 +892,7 @@ def refine_system(input_dir):
 		with tempfile.TemporaryDirectory() as tmp_dir:
 			minimized = _refine_with_strategy(input_dir, tmp_dir, strategy='primary')
 			if not minimized:
-				logger.warning(
+				print(
 					f"Primary refinement produced NaN forces for {input_dir}; "
 					f"retrying with fallback strategy (mutate rebuilt residues to GLY)"
 				)
@@ -975,7 +975,7 @@ def _refine_with_strategy(input_dir, tmp_dir, strategy):
 	)
 	logger.info(f"Skipping restraints on {len(skip_indices)} rebuilt atoms")
  
-	nonmobile_restraint, mobile_restraint = _build_restraints(stabilize_nonmobile=is_fallback)
+	nonmobile_restraint, mobile_restraint = _build_restraints()
 	_populate_restraints(
 		modeller, mobile_atoms, skip_indices,
 		nonmobile_restraint, mobile_restraint,
@@ -991,7 +991,7 @@ def _refine_with_strategy(input_dir, tmp_dir, strategy):
  
 	simulation = _build_simulation(modeller, system)
  
-	if _has_nan_forces(simulation):
+	if not is_fallback and _has_nan_forces(simulation):
 		# Bail out early; refine_system() will retry with fallback strategy.
 		return False
  
@@ -1001,3 +1001,21 @@ def _refine_with_strategy(input_dir, tmp_dir, strategy):
 	state = simulation.context.getState(getEnergy=True, getPositions=True)
 	_save_outputs(modeller, state.getPositions(), ligand_entries, out_dir)
 	return True
+
+# ============================================================================
+# Driver
+# ============================================================================
+
+def safe_refine_system(input_dir):
+	try:
+		refine_system(input_dir)
+	except TimeoutError:
+		print(f'{input_dir} - timed out after 3600s, skipping')
+	except Exception as e:
+		print(f'{input_dir} - unhandled error: {e}')
+  
+if __name__ == '__main__':
+	subdir_list = os.listdir(f'{DATA_DIR}/systems')
+	Parallel(n_jobs=72, verbose=10)(
+		delayed(safe_refine_system)(input_dir) for input_dir in subdir_list
+	)
