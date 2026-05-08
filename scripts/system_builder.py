@@ -46,7 +46,7 @@ import subprocess
 ALLOWED_ELEMENTS: set[str] = {"C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "B"}
 MAX_HEAVY_ATOMS: int = 100  # chain must have strictly fewer than this
 INTER_RESIDUE_CUTOFF: float = 2.2  # Å; no bond added beyond this distance
-SKIP_RESIDUES = {'HEM', 'MGD', 'SF4', 'HOH'}
+SKIP_RESIDUES = {'HEM', 'MGD', 'SF4', 'HOH', 'DOD', 'WAT', 'O'}
  
 # Cache keyed by residue name -> {
 #     "atoms": {atom_name: (element, formal_charge)},
@@ -483,6 +483,10 @@ def _reconcile_for_inter_residue_bond(rwmol: Chem.RWMol, atom_idx: int) -> None:
 
     central = dbl.GetOtherAtom(atom)
 
+    print('You are here')
+    print(f'{atom_idx} - {central}')
+
+
     # Look for a singly-bonded, negatively-charged neighbour we can promote.
     for b in central.GetBonds():
         if b.GetIdx() == dbl.GetIdx():
@@ -492,6 +496,9 @@ def _reconcile_for_inter_residue_bond(rwmol: Chem.RWMol, atom_idx: int) -> None:
         nbr = b.GetOtherAtom(central)
         degree = sum(1 for x in nbr.GetNeighbors() if x.GetAtomicNum() != 1)
         if nbr.GetSymbol() in ("O", "N") and degree == 1:
+
+            print(f'Resetting bond for {nbr}')
+
             dbl.SetBondType(Chem.BondType.SINGLE)
             b.SetBondType(Chem.BondType.DOUBLE)
             return
@@ -554,10 +561,17 @@ def protonate_ligand(mol: Chem.Mol) -> Chem.Mol:
     Protonate RDMol at given pH using dimorphite
     """
 
+    print('You are here')
+
     # Strip existing Hs, protonate at target pH
     mol_noh = strip_mol(mol)
     if mol_noh is None:
         return None
+
+    print('You are now here')
+
+    with Chem.SDWriter(f'{stem}_new.sdf') as writer:
+        writer.write(mol_noh)
     
     protonated = dl.run_with_mol_list([mol_noh], min_ph = PH, max_ph = PH,
 	        pka_precision=0.0, silent=True
@@ -611,6 +625,9 @@ def process_pdb(basename: str) -> None:
                 else:
                     stem = f"chain_{chain.name}_frag{frag_i}"
 
+                with Chem.SDWriter(f'{stem}.sdf') as writer:
+                    writer.write(mol)
+
                 mol_h = protonate_ligand(mol)
 
                 if mol_h is None:
@@ -638,8 +655,8 @@ def main():
     # ensure the cache file exists BEFORE spawning workers
     build_ccd_atoms_bonds_cache()
 
-    #process_pdb('1hk1_D')
-    Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
+    process_pdb('5vdk_B')
+    #Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
 
 if __name__ == '__main__':
     main()

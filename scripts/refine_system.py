@@ -67,7 +67,7 @@ STANDARD_BASES = {'A', 'U', 'G', 'C', 'DA', 'DT', 'DG', 'DC',
 	'A3', 'A5', 'U3', 'U5', 'G3', 'G5', 'C3', 'C5', 'DA3', 'DA5', 'DT3', 'DT5', 'DG3', 'DG5', 'DC3', 'DC5'
 }
  
-WATER_NAMES = {'HOH', 'WAT', 'TIP3', 'SOL', 'OPC'}
+WATER_NAMES = {'HOH', 'WAT', 'TIP3', 'DOD', 'O'}
 METALLOCOFACTORS = {'HEM', 'SF4', 'MGD'}
 TEMPLATES_TO_REMOVE = {'AG1', 'Ce', 'Cr', 'CU1', 'EU3', 'FE2', 'TL1', 'Sm'}
 
@@ -116,6 +116,12 @@ def _clean_file(pdb_path):
 		for line in f:
 			line = line.strip()
 			parts = line.split()
+
+			if line.startswith(('ATOM', 'HETATM')):
+				res_name = line[17:20].strip()
+				if res_name in WATER_NAMES:
+					line = line[:17] + 'HOH' + line[20:]
+
 			if parts[0] not in {'HET', 'CRYST1'}:
 				lines_to_keep.append(line)
 
@@ -505,8 +511,14 @@ def _get_rebuilt_atom_indices(original_pdb_path, topology, positions, tol_nm=0.0
 def _strip_distant_waters(modeller, ligand_molecules, cutoff_nm=0.4):
     """
     Delete waters whose oxygen is further than `cutoff_nm` from any ligand
-    heavy atom. Operates on `modeller` in place.
-
+    or metallocofactor heavy atom. Operates on `modeller` in place.
+ 
+    Reference set:
+      * heavy atoms of every Molecule in `ligand_molecules` (from .sdf inputs)
+      * heavy atoms of every residue in the modeller topology whose name is in
+        METALLOCOFACTORS (HEM, MGD, SF4) - these enter via the receptor PDB
+        rather than as separate SDFs and would otherwise be invisible here.
+ 
     Parameters
     ----------
     modeller : openmm.app.Modeller
@@ -515,28 +527,47 @@ def _strip_distant_waters(modeller, ligand_molecules, cutoff_nm=0.4):
         conformers[0] (in Å).
     cutoff_nm : float
         Distance cutoff in nm. Default 0.4 nm = 4 Å.
-
+ 
     Returns
     -------
     int
         Number of water residues removed.
     """
-    # Collect ligand heavy-atom positions in nm
+    # Modeller positions in nm (used for both cofactor refs and water queries)
+    positions = np.array(
+        [p.value_in_unit(unit.nanometer) for p in modeller.positions]
+    )
+ 
+    # Collect reference heavy-atom positions in nm
     ref_positions = []
+ 
+    # (1) SDF-derived ligands
     for mol in ligand_molecules:
         coords_nm = mol.conformers[0].to(openff_unit.nanometer).magnitude
         for atom, xyz in zip(mol.atoms, coords_nm):
             if atom.atomic_number != 1:
                 ref_positions.append(xyz)
+ 
+    # (2) Metallocofactors already in the receptor topology
+    n_cofactor_atoms = 0
+    for residue in modeller.topology.residues():
+        if residue.name in STANDARD_AMINO_ACIDS:
+            continue
+        for atom in residue.atoms():
+            if atom.element.symbol != 'H':
+                ref_positions.append(positions[atom.index])
+                n_cofactor_atoms += 1
+    if n_cofactor_atoms:
+        logger.info(
+            f"_strip_distant_waters: seeded KDTree with {n_cofactor_atoms} "
+            f"metallocofactor heavy atom(s) in addition to SDF ligand atoms"
+        )
+ 
     if not ref_positions:
         return 0
-
+ 
     tree = KDTree(np.asarray(ref_positions))
-
-    positions = np.array(
-        [p.value_in_unit(unit.nanometer) for p in modeller.positions]
-    )
-
+ 
     waters_to_remove = []
     for residue in modeller.topology.residues():
         if residue.name not in WATER_NAMES:
@@ -549,7 +580,7 @@ def _strip_distant_waters(modeller, ligand_molecules, cutoff_nm=0.4):
         d, _ = tree.query(positions[oxygen.index], k=1)
         if d > cutoff_nm:
             waters_to_remove.append(residue)
-
+ 
     if waters_to_remove:
         modeller.delete(waters_to_remove)
     return len(waters_to_remove)
@@ -678,6 +709,7 @@ def _populate_restraints(modeller, mobile_atoms, skip_indices,
 			continue
 		if atom.index in skip_indices:
 			continue
+
 		pos = positions[atom.index].value_in_unit(unit.nanometers)
 		if atom.index in mobile_atoms:
 			mobile_restraint.addParticle(atom.index, pos)
@@ -763,7 +795,7 @@ def refine_system(input_dir):
 				forcefields=FORCEFIELD_LIST,  # IMPLICIT WATER MODEL ADDED https://github.com/openmm/openmm/issues/3364
 				small_molecule_forcefield='openff-2.2.0',
 				molecules=ligand_molecules,
-				forcefield_kwargs={
+				nonperiodic_forcefield_kwargs={
 					'nonbondedMethod': CutoffNonPeriodic,
 					'nonbondedCutoff': MOBILE_RADIUS * unit.nanometer,
 				}
@@ -829,6 +861,5 @@ def safe_refine_system(input_dir):
   
 if __name__ == '__main__':
 	subdir_list = os.listdir(f'{DATA_DIR}/systems')
-	Parallel(n_jobs=72, verbose=10)(
-		delayed(safe_refine_system)(input_dir) for input_dir in subdir_list
-	)
+	Parallel(n_jobs=72, verbose=10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)
+	#safe_refine_system('4aay_BA')
