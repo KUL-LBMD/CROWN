@@ -501,6 +501,7 @@ def _reconcile_for_inter_residue_bond(rwmol: Chem.RWMol, atom_idx: int) -> None:
 
             dbl.SetBondType(Chem.BondType.SINGLE)
             b.SetBondType(Chem.BondType.DOUBLE)
+            nbr.SetFormalCharge(0)
             return
 
     # Fallback: demote without migration. Central atom's valence drops by 1;
@@ -561,7 +562,7 @@ def protonate_ligand(mol: Chem.Mol) -> Chem.Mol:
     Protonate RDMol at given pH using dimorphite
     """
 
-    print('You are here')
+    print('You are currently here')
 
     # Strip existing Hs, protonate at target pH
     mol_noh = strip_mol(mol)
@@ -570,9 +571,6 @@ def protonate_ligand(mol: Chem.Mol) -> Chem.Mol:
 
     print('You are now here')
 
-    with Chem.SDWriter(f'{stem}_new.sdf') as writer:
-        writer.write(mol_noh)
-    
     protonated = dl.run_with_mol_list([mol_noh], min_ph = PH, max_ph = PH,
 	        pka_precision=0.0, silent=True
 	    )[0]
@@ -655,7 +653,7 @@ def main():
     # ensure the cache file exists BEFORE spawning workers
     build_ccd_atoms_bonds_cache()
 
-    process_pdb('5vdk_B')
+    process_pdb('7t36_B')
     #Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
 
 if __name__ == '__main__':
