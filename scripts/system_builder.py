@@ -68,6 +68,17 @@ BOND_ORDER_MAP: dict[str, Chem.BondType] = {
 
 PH = 7.4
 
+# Allowed explicit valences by (symbol, formal_charge). Mirrors RDKit's
+# default valence model. Add entries here as you hit them.
+_ALLOWED_VALENCES = {
+    ("S",  0): {2, 4, 6},
+    ("S", +1): {3, 5},
+    ("S", -1): {1, 3, 5},
+    ("P",  0): {3, 5},
+    ("N",  0): {3},
+    ("N", +1): {4},
+}
+
 # Module-level global — no decorators, no pickle issues
 _CCD_CACHE = None
 _CCD_PREFIX_INDEX = None
@@ -261,7 +272,55 @@ def chain_passes_filter(chain: gemmi.Chain) -> tuple[bool, int, set[str]]:
 # ---------------------------------------------------------------------------
 # RDKit molecule construction
 # ---------------------------------------------------------------------------
- 
+
+def _is_overvalent(atom: Chem.Atom) -> bool:
+    allowed = _ALLOWED_VALENCES.get((atom.GetSymbol(), atom.GetFormalCharge()))
+    if allowed is None:
+        return False
+    explicit = sum(int(b.GetBondTypeAsDouble()) for b in atom.GetBonds())
+    return explicit > max(allowed)
+
+def _repair_hypervalent_atom(rwmol: Chem.RWMol, atom_idx: int) -> bool:
+    """Demote one =X bond on a hypervalent center; rebalance charges.
+
+    Targets the CCD pattern S(=O)(=N)(=N) and similar where the dictionary
+    encodes a charge-separated species in its hypervalent Lewis form. We
+    pick a terminal =N or =O neighbor, demote the bond, and move one unit
+    of positive charge from the center onto... well, off the molecule —
+    the demoted heteroatom becomes a neutral X-H or anionic X⁻ depending
+    on what the center had.
+    """
+    atom = rwmol.GetAtomWithIdx(atom_idx)
+    if not _is_overvalent(atom):
+        return False
+
+    # Prefer demoting =N over =O (sulfonimidamide convention: keep =O).
+    candidates = []
+    for b in atom.GetBonds():
+        if b.GetBondType() != Chem.BondType.DOUBLE:
+            continue
+        nbr = b.GetOtherAtom(atom)
+        heavy = [n for n in nbr.GetNeighbors() if n.GetAtomicNum() != 1]
+        if len(heavy) != 1 or nbr.GetSymbol() not in ("O", "N"):
+            continue
+        # Sort key: N before O, then by atom index for determinism.
+        candidates.append((0 if nbr.GetSymbol() == "N" else 1, nbr.GetIdx(), b, nbr))
+
+    if not candidates:
+        return False
+    candidates.sort()
+    _, _, bond, nbr = candidates[0]
+
+    bond.SetBondType(Chem.BondType.SINGLE)
+    # The center loses one unit of bonding; reduce its formal charge if
+    # it had a positive one (the CCD's compensation), otherwise put -1
+    # on the demoted neighbor.
+    if atom.GetFormalCharge() > 0:
+        atom.SetFormalCharge(atom.GetFormalCharge() - 1)
+    else:
+        nbr.SetFormalCharge(nbr.GetFormalCharge() - 1)
+    return True
+
 def _sanitize_with_fallback(mol: Chem.Mol, label: str) -> Chem.Mol:
     """Try strict sanitization; fall back to relaxed; on failure, leave raw."""
     try:
@@ -355,6 +414,10 @@ def build_rdkit_mols_from_chain(
             if rwmol.GetBondBetweenAtoms(i1, i2) is not None:
                 continue
             rwmol.AddBond(i1, i2, BOND_ORDER_MAP.get(order, Chem.BondType.SINGLE))
+
+    for atom in rwmol.GetAtoms():
+        if _is_overvalent(atom):
+            _repair_hypervalent_atom(rwmol, atom.GetIdx())
  
     # -- Inter-residue bonds: single bond between the closest atom pair,
     #    but only if that minimum distance is below the cutoff. --
@@ -533,8 +596,9 @@ def strip_mol(mol: Chem.Mol) -> Chem.Mol:
                 writer.close()
 
                 # SDF
-                subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-osdf', '-O', f'{tmp_dir}/temp.sdf'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
-                mol = Chem.SDMolSupplier(f'{tmp_dir}/temp.sdf', removeHs=True)[0]
+                #subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-osdf', '-O', f'{tmp_dir}/temp.sdf'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
+                subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-osdf', '-O', f'temp.sdf'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
+                mol = Chem.SDMolSupplier(f'temp.sdf', removeHs=True)[0]
                 mol_noh = Chem.RemoveAllHs(mol)
                 return mol_noh
 
@@ -543,12 +607,12 @@ def strip_mol(mol: Chem.Mol) -> Chem.Mol:
 
                     print(e2)
 
-                    subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-opdb', '-O', f'{tmp_dir}/temp.pdb'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
-                    mol = Chem.MolFromPDBFile(f'{tmp_dir}/temp.pdb', removeHs = False, sanitize = False)
+                    subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-opdb', '-O', f'temp.pdb'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
+                    mol = Chem.MolFromPDBFile(f'temp.pdb', removeHs = False, sanitize = False)
                     if mol is None:
-                        subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-oxyz', '-O', f'{tmp_dir}/temp.xyz'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
-                        subprocess.run(['obabel', '-ixyz', f'{tmp_dir}/temp.xyz', '-osdf', '-O', f'{tmp_dir}/temp.sdf'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
-                        mol = Chem.SDMolSupplier(f'{tmp_dir}/temp.sdf', removeHs=True)[0]
+                        subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-oxyz', '-O', f'temp.xyz'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
+                        subprocess.run(['obabel', '-ixyz', f'temp.xyz', '-osdf', '-O', f'temp_new.sdf'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
+                        mol = Chem.SDMolSupplier(f'temp_new.sdf', removeHs=True)[0]
 
                     mol_noh = Chem.RemoveAllHs(mol)
                     return mol_noh
@@ -648,13 +712,16 @@ def process_pdb(basename: str) -> None:
 
 def main():
     df = pd.read_csv(f'{DATA_DIR}/metadata/pli_filter_pass.csv')
-    basenames = df['filename'].tolist()
+    dir_list = os.listdir(f'{DATA_DIR}/systems')
+    subset = df[~df['filename'].isin(dir_list)]
+    print(len(subset))
+    basenames = subset['filename'].tolist()
 
     # ensure the cache file exists BEFORE spawning workers
     build_ccd_atoms_bonds_cache()
 
-    process_pdb('7t36_B')
-    #Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
+    #process_pdb('7t36_B')
+    Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
 
 if __name__ == '__main__':
     main()
