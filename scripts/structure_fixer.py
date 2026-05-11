@@ -46,8 +46,8 @@ STANDARD_BASES = {'A', 'U', 'G', 'C', 'DA', 'DT', 'DG', 'DC'}
 VALID_BOND_ATOMS = {'C', 'N', 'O', 'S', 'P', 'B'}
 
 WATER_NAMES = {"HOH", "WAT", "DOD", "H2O", "TIP3", "SPC", "TIP"}
-
 METALLOCOFACTORS = {'HEM', 'SF4', 'MGD'}
+FAILURE_RESIDUES = {'Xe', 'W', 'OXY', 'CMO', 'AM', 'UNK', 'UNX', 'UNL'}
 
 FIXED_RESIDUES = STANDARD_AA | STANDARD_BASES | METALLOCOFACTORS | WATER_NAMES | {'ACE', 'NME'}
 CUSTOM_SUBSTITUTIONS = {'SEC': 'CYS', '0A8': 'CYS', 'MSE': 'MET'}
@@ -772,17 +772,6 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
 
     fixer = PDBFixer(filename = f'{DATA_DIR}/pdb/raw/{basename}.pdb')
 
-    # Abort early if any chain contains an unknown residue (UNL = unknown ligand,
-    # UNK = unknown amino acid). These indicate incomplete ligand/residue
-    # identification in the source entry and can't be reliably processed.
-    for residue in fixer.topology.residues():
-        if residue.name in {'UNK', 'UNL'}:
-            print(
-                f'Unknown residue encountered: '
-                f'{basename} {residue.name} {residue.chain.id}{residue.id}'
-            )
-            return 'unknown_residue'
-
     # ── Branched residues merged into polymer chains ──
     # After merge_bonded_chains, glycans (NAG/BMA/MAN/…) and other covalent
     # attachments end up on the protein chain. Detect them as non-FIXED
@@ -954,6 +943,30 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
 
     return 'ok'
 
+def check_structure(basename):
+    """
+    Check against failure residues, huge residues and failure elements
+    """
+
+    structure = gemmi.read_structure(f'{DATA_DIR}/pdb/fixed/{basename}.pdb')
+    model = structure[0]
+
+    for chain in model:
+        for residue in chain:
+            if residue.name in FAILURE_RESIDUES:
+                return False
+            
+            n_heavy = sum(1 for atom in residue if not atom.is_hydrogen())
+            if n_heavy > 100:
+                return False
+            
+            elements = {atom.element.name for atom in residue}
+            if 'C' in elements and not residue.name in METALLOCOFACTORS:
+                if not elements.issubset({'C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'H', 'D'}):
+                    return False
+                
+    return True
+
 ### Core workflow ###
 #--------------------
 
@@ -1039,7 +1052,12 @@ def main(pdb_id):
                 # 5.3 missing and nonstand residues with PDBFixer
                 update_element_positions(f'{DATA_DIR}/pdb/raw/{basename}.pdb')
                 ligand_coords = _get_chain_coords(new_structure, 'Z')
+
                 fixer_status = fix_missing_and_nonstandard_residues(basename, ligand_coords)
+                checker_status = check_structure(basename)
+                if not checker_status:
+                    os.remove(f'{DATA_DIR}/pdb/fixed/{basename}.pdb')
+                
                 if fixer_status == 'modified_in_shell':
                     flags['has_modified_residues_in_shell'] = True
                     flags['failure_reason'] = 'modified_residues_in_shell'
