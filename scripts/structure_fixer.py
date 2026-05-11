@@ -900,11 +900,6 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     # Exclude chain Z from missing residues
     chain_idx_to_id = {c.index: c.id for c in fixer.topology.chains()}
 
-    fixer.missingResidues = {
-        key: val for key, val in fixer.missingResidues.items()
-        if chain_idx_to_id.get(key[0]) != "Z" and chain_heavy_counts.get(key[0], 0) > 100
-    }
-
     # Cap terminal extensions at 5 residues. PDBFixer's missingResidues key is
     # (chain_index, insertion_position), where the position is an index *into
     # the existing residues* — 0 means insert before the first, len(chain) means
@@ -923,11 +918,20 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
             fixer.missingResidues[(chain_idx, ins_pos)] = residues[:MAX_TERMINAL_EXTENSION]
         # else: internal gap, leave it alone
 
-    # Exclude chain Z from missing atoms
-    fixer.missingAtoms = {
-        residue: atoms for residue, atoms in fixer.missingAtoms.items()
-        if chain_id_map.get(residue.index) != "Z" and chain_heavy_counts.get(residue.chain.index, 0) > 100
-    }
+    print(fixer.missingResidues)
+
+    for (chain_idx, ins_pos), residues in fixer.missingResidues.items():
+        n_chain = chain_res_counts.get(chain_idx, 0)
+        if ins_pos == 0 or ins_pos == n_chain:
+            continue  # terminal, handled by the cap above
+        flanks = [chain_residues[chain_idx][ins_pos - 1], chain_residues[chain_idx][ins_pos]]
+        for res in flanks:
+            for atom in res.atoms():
+                pos = fixer.positions[atom.index]
+                coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
+                if np.linalg.norm(ligand_coords - coord, axis=1).min() < SHELL_RADIUS:
+                    print('Gap in shell')
+                    return 'gap_in_shell'
 
     # Check if any remaining residue with missing atoms is near the ligand
     for residue in list(fixer.missingAtoms.keys()):
@@ -942,6 +946,7 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                 )
                 return 'missing_atoms_in_shell'
 
+    print(fixer.missingAtoms)
     fixer.addMissingAtoms()
 
     with open(f'{DATA_DIR}/pdb/fixed/{basename}.pdb', "w") as fh:
@@ -1029,6 +1034,8 @@ def main(pdb_id):
 
                 new_structure.write_pdb(f'{DATA_DIR}/pdb/raw/{basename}.pdb', opts)
 
+                print(chain_id)
+
                 # 5.3 missing and nonstand residues with PDBFixer
                 update_element_positions(f'{DATA_DIR}/pdb/raw/{basename}.pdb')
                 ligand_coords = _get_chain_coords(new_structure, 'Z')
@@ -1103,5 +1110,5 @@ def wrapper(num_cores = 1):
                 f.write(f"  {exc}\n")
 
 if __name__ == '__main__':
-    wrapper(num_cores = 100)
-    #main('3zke')
+    #wrapper(num_cores = 100)
+    main('7ow4')

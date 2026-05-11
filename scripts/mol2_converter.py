@@ -23,7 +23,7 @@ from typing import Optional
 import gemmi
 from rdkit import Chem
 from scipy.spatial import KDTree
-from tqdm import tqdm
+from joblib import Parallel, delayed
 
 from src.config import DATA_DIR
 
@@ -93,7 +93,7 @@ def process_system(subdir: str, tmp_dir: Path) -> None:
                     complex_dir / 'ligand.sdf')
         shutil.copy(lig_sdf_min, complex_dir / 'ligand_minimized.sdf')
 
-        rdmol = next(Chem.SDMolSupplier(str(lig_sdf_min)))
+        rdmol = next(Chem.SDMolSupplier(str(lig_sdf_min), removeHs = False))
         if rdmol is None:
             raise ValueError(f'RDKit failed to parse {lig_sdf_min}')
         lig_tree = KDTree(rdmol.GetConformer().GetPositions())
@@ -134,24 +134,15 @@ def process_system(subdir: str, tmp_dir: Path) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    systems_root = Path(DATA_DIR) / 'processed_systems'
-    subdirs = sorted(p.name for p in systems_root.iterdir() if p.is_dir())
-
-    failures: list[tuple[str, str]] = []
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_dir = Path(tmp)
-        for subdir in tqdm(subdirs):
-            try:
-                process_system(subdir, tmp_dir)
-            except Exception as e:  # noqa: BLE001 - log and continue
-                failures.append((subdir, repr(e)))
-
-    if failures:
-        print(f'\n{len(failures)} system(s) failed:')
-        for subdir, err in failures:
-            print(f'  {subdir}: {err}')
-
+def main(subdir):
+	with tempfile.TemporaryDirectory() as tmp:
+		tmp_dir = Path(tmp)
+		try:
+			process_system(subdir, tmp_dir)
+		except Exception as e:  # noqa: BLE001 - log and continue
+			print(f'{subdir} - {e}')
 
 if __name__ == '__main__':
-    main()
+	systems_root = Path(DATA_DIR) / 'processed_systems'
+	subdirs = sorted(p.name for p in systems_root.iterdir() if p.is_dir())
+	Parallel(n_jobs = 20, verbose = 10, backend = 'multiprocessing')(delayed(main)(subdir) for subdir in subdirs)
