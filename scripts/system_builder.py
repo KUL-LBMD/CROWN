@@ -685,7 +685,8 @@ def process_pdb(basename: str) -> None:
                 if len(mols) == 1:
                     stem = f"chain_{chain.name}"
                 else:
-                    stem = f"chain_{chain.name}_frag{frag_i}"
+                    shutil.rmtree(out_dir)
+                    return
 
                 with Chem.SDWriter(f'{stem}.sdf') as writer:
                     writer.write(mol)

@@ -16,9 +16,9 @@ from openff.nagl_models import list_available_nagl_models
 from openff.nagl import GNNModel
 from openmm import CustomExternalForce, LangevinMiddleIntegrator, unit, Platform
 import logging
-from joblib import Parallel, delayed
- 
-from concurrent.futures import TimeoutError as FuturesTimeoutError
+import signal
+import multiprocessing as mp
+
 import functools
 import xml.etree.ElementTree as ET
  
@@ -77,18 +77,100 @@ TEMPLATES_TO_REMOVE = {'AG1', 'Ce', 'Cr', 'CU1', 'EU3', 'FE2', 'TL1', 'Sm'}
 # Helper functions
 # =====================================================
 
+def _subprocess_target(q, func, args, kwargs):
+    """
+    Top-level worker for the process-based timeout.
+
+    Must be module-level (not nested) so it pickles cleanly under the 'spawn'
+    multiprocessing context. Calls os.setsid() so the child has its own
+    process group -- this lets the parent SIGKILL the entire group, including
+    grandchild subprocesses spawned by OpenMM / AmberTools (sqm, antechamber).
+    """
+    try:
+        os.setsid()
+    except OSError:
+        pass  # Not POSIX or already a session leader
+
+    try:
+        func(*args, **kwargs)
+        q.put(("ok", None))
+    except BaseException as e:
+        # repr() avoids issues with non-picklable exceptions
+        q.put(("err", repr(e)))
+
+
 def timeout(seconds=300):
-    """Cross-platform timeout decorator"""
+    """
+    Hard timeout decorator: runs `func` in a child process (spawn context) and
+    kills the entire process group via SIGKILL if it exceeds `seconds`.
+
+    This is the only Python-level mechanism that reliably terminates code
+    holding the GIL inside C/C++ extensions (OpenMM minimizers, NAGL/torch)
+    and that also reaps subprocesses launched by the target function
+    (AmberTools sqm/antechamber for charge assignment).
+
+    Notes
+    -----
+    * 'spawn' is used over 'fork' to avoid duplicating any background threads
+      OpenMM/torch may have started in the parent.
+    * Module-level imports are re-executed in the child, so this adds a few
+      seconds of overhead per call. Acceptable for long-running refinements.
+    """
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            from concurrent.futures import ThreadPoolExecutor
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(func, *args, **kwargs)
+            ctx = mp.get_context("spawn")
+            q = ctx.Queue()
+            p = ctx.Process(
+                target=_subprocess_target,
+                args=(q, func, args, kwargs),
+            )
+            p.start()
+            p.join(seconds)
+
+            if p.is_alive():
+                # Polite kill of the whole group first, then a hard kill.
+                pgid = None
                 try:
-                    return future.result(timeout=seconds)
-                except FuturesTimeoutError:
-                    raise TimeoutError(f"Function exceeded {seconds}s timeout")
+                    pgid = os.getpgid(p.pid)
+                except (ProcessLookupError, PermissionError, OSError):
+                    pass
+
+                if pgid is not None:
+                    try:
+                        os.killpg(pgid, signal.SIGTERM)
+                    except (ProcessLookupError, PermissionError, OSError):
+                        pass
+                p.join(2)
+
+                if p.is_alive():
+                    if pgid is not None:
+                        try:
+                            os.killpg(pgid, signal.SIGKILL)
+                        except (ProcessLookupError, PermissionError, OSError):
+                            pass
+                    # Fallback: kill the immediate child even if group kill failed
+                    try:
+                        p.kill()
+                    except Exception:
+                        pass
+                    p.join()
+
+                raise TimeoutError(f"Function exceeded {seconds}s timeout")
+
+            # Process finished -- pull status from the queue.
+            try:
+                status, value = q.get(timeout=1)
+            except Exception:
+                # Child died (e.g. segfault) before writing anything.
+                raise RuntimeError(
+                    f"Subprocess exited with code {p.exitcode} "
+                    f"without returning a result"
+                )
+
+            if status == "err":
+                raise RuntimeError(value)
+            return value
         return wrapper
     return decorator
 
@@ -754,7 +836,6 @@ def _save_outputs(modeller, minimized_positions, ligand_entries, out_dir):
 # Main refinement pipeline
 # ===================================================
 
-@timeout(seconds=900)
 def refine_system(input_dir):
 	"""
 	Structure refinement workflow:
@@ -854,16 +935,31 @@ def refine_system(input_dir):
 # ============================================================================
 # Driver
 # ============================================================================
- 
+
+# Strict per-system wall-clock limit. Enforced via SIGKILL on the worker
+# process group, so it fires even inside OpenMM minimization or sqm/antechamber.
+TIMEOUT_SECONDS = 900
+
 def safe_refine_system(input_dir):
-	try:
-		refine_system(input_dir)
-	except TimeoutError:
-		print(f'{input_dir} - timed out after 3600s, skipping')
-	except Exception as e:
-		print(f'{input_dir} - unhandled error: {e}')
-  
+    # Apply the hard timeout at call time rather than as a module-level
+    # decorator. This way the pickled function reference sent to the child
+    # process is the bare `refine_system`, which the child resolves
+    # unambiguously on re-import (no risk of recursive subprocess spawning).
+    bounded_refine = timeout(seconds=TIMEOUT_SECONDS)(refine_system)
+    try:
+        bounded_refine(input_dir)
+    except TimeoutError:
+        print(f'{input_dir} - timed out after {TIMEOUT_SECONDS}s, skipping')
+    except Exception as e:
+        print(f'{input_dir} - unhandled error: {e}')
+
 if __name__ == '__main__':
-	subdir_list = os.listdir(f'{DATA_DIR}/systems')
-	Parallel(n_jobs=72, verbose=10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)
-	#safe_refine_system('4mux_D')
+
+
+    subdir_list = [x for x in os.listdir(f'{DATA_DIR}/systems') if not os.path.isfile(f'{DATA_DIR}/processed_systems/{x}/system_minimized.pdb')]
+    print(len(subdir_list))
+    total = len(subdir_list)
+    for i, input_dir in enumerate(subdir_list, 1):
+        print(f'[{i}/{total}] {input_dir}', flush=True)
+        safe_refine_system(input_dir)
+    #safe_refine_system('4mux_D')
