@@ -14,6 +14,7 @@ Two ligand cases are handled:
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -26,7 +27,6 @@ from scipy.spatial import KDTree
 from joblib import Parallel, delayed
 
 from src.config import DATA_DIR
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -137,12 +137,20 @@ def process_system(subdir: str, tmp_dir: Path) -> None:
 def main(subdir):
 	with tempfile.TemporaryDirectory() as tmp:
 		tmp_dir = Path(tmp)
+
+		if os.path.isdir(f'{DATA_DIR}/complexes/{subdir}'):
+			file_list = os.listdir(f'{DATA_DIR}/complexes/{subdir}')
+			if len(file_list) == 4:
+				return
+
 		try:
 			process_system(subdir, tmp_dir)
 		except Exception as e:  # noqa: BLE001 - log and continue
+			shutil.rmtree(f'{DATA_DIR}/complexes/{subdir}')
+			shutil.rmtree(f'{DATA_DIR}/mol2_files/{subdir}')
 			print(f'{subdir} - {e}')
 
 if __name__ == '__main__':
 	systems_root = Path(DATA_DIR) / 'processed_systems'
 	subdirs = sorted(p.name for p in systems_root.iterdir() if p.is_dir())
-	Parallel(n_jobs = 20, verbose = 10, backend = 'multiprocessing')(delayed(main)(subdir) for subdir in subdirs)
+	Parallel(n_jobs = 32, verbose = 10, backend = 'multiprocessing')(delayed(main)(subdir) for subdir in subdirs)
