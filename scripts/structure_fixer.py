@@ -757,47 +757,6 @@ def build_pdb(structure: gemmi.Structure, chain_id):
     _assign_subchain_ids(new_structure)
     return new_structure
 
-def _add_seqres_with_caps(input_pdb: str, output_pdb: str, chain_heavy_counts):
-	"""
-	Add SEQRES records with ACE/NME caps to a PDB file.
-	PDBFixer will then detect these as 'missing' and build them.
-	"""
-
-	# First, read the structure to get chain sequences
-	pdb = PDBFile(input_pdb)
-
-	# Build sequence for each chain
-	chain_sequences = {}
-	for chain in pdb.topology.chains():
-		residues = list(chain.residues())
-		seq = [r.name for r in residues]
-		num_aa = sum(1 for r in residues if r.name in STANDARD_AA)
-		num_atoms = chain_heavy_counts.get(chain.index, 0)
-		if num_aa > 10 and num_atoms > 100:
-			# Add ACE at start, NME at end
-			if seq[0] != 'ACE':
-				seq = ['ACE'] + seq
-			if seq[-1] != 'NME':
-				seq = seq + ['NME']
-		chain_sequences[chain.id] = seq
-
-	# Now write modified PDB with SEQRES records
-	with open(input_pdb, 'r') as f_in, open(output_pdb, 'w') as f_out:
-		# First write SEQRES records for each chain
-		for chain_id, seq in chain_sequences.items():
-			# SEQRES records: max 13 residues per line
-			for i in range(0, len(seq), 13):
-				chunk = seq[i:i+13]
-				line_num = (i // 13) + 1
-				seqres_line = f"SEQRES {line_num:>3} {chain_id} {len(seq):>4}  "
-				seqres_line += " ".join(f"{res:>3}" for res in chunk)
-				f_out.write(seqres_line + '\n')
-
-		# Then copy the rest of the file (skip existing SEQRES lines)
-		for line in f_in:
-			if not line.startswith('SEQRES'):
-				f_out.write(line)
-
 def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarray):
     """
     Use PDBFixer to find nonstandard residues, missing residues and unresolved atoms.
@@ -811,55 +770,116 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
 	``False`` so the caller can abort.
     """
 
-    fixer = PDBFixer(filename = f'{DATA_DIR}/pdb/raw/{basename}.pdb')
+    # Read with gemmi so SEQRES survives the round-trip
+    structure = gemmi.read_structure(f'{DATA_DIR}/pdb/raw/{basename}.pdb')
+    model = structure[0]
 
-    # ── Branched residues merged into polymer chains ──
-    # After merge_bonded_chains, glycans (NAG/BMA/MAN/…) and other covalent
-    # attachments end up on the protein chain. Detect them as non-FIXED
-    # residues lacking a CA backbone atom inside a long (>100 heavy atom)
-    # chain. Drop them if they sit outside the binding-site shell; abort if
-    # any of their atoms fall inside it.
+    # Initial bookkeeping; chain_idx is the 0-based position in the model,
+    # which will match PDBFixer's chain.index once the file is reloaded.
     chain_heavy_counts = {}
-    chain_id_map = {}
-    for chain in fixer.topology.chains():
+    chain_id_map = {}                       # (chain_idx, res_idx) -> chain name
+    for chain_idx, chain in enumerate(model):
         heavy = 0
-        for residue in chain.residues():
-            chain_id_map[residue.index] = chain.id
-            for atom in residue.atoms():
-                if atom.element is not None and atom.element.symbol in VALID_BOND_ATOMS:
+        for res_idx, residue in enumerate(chain):
+            chain_id_map[(chain_idx, res_idx)] = chain.name
+            for atom in residue:
+                if atom.element.name in VALID_BOND_ATOMS:
                     heavy += 1
-        chain_heavy_counts[chain.index] = heavy
+        chain_heavy_counts[chain_idx] = heavy
 
-    branched = []
-    for residue in fixer.topology.residues():
-        if chain_id_map.get(residue.index) == "Z":
+    # Branched: non-FIXED, missing backbone, sitting on a long chain
+    branched = []                           # (chain_idx, res_idx, chain, residue)
+    for chain_idx, chain in enumerate(model):
+        if chain.name == 'Z':
             continue
-        if residue.name in FIXED_RESIDUES:
+        if chain_heavy_counts[chain_idx] <= 100:
             continue
-        if chain_heavy_counts.get(residue.chain.index, 0) <= 100:
-            continue
-        atom_names = {atom.name for atom in residue.atoms()}
-        if not {'N', 'CA', 'C', 'O'}.issubset(atom_names):
-            branched.append(residue)
+        for res_idx, residue in enumerate(chain):
+            if residue.name in FIXED_RESIDUES:
+                continue
+            atom_names = {atom.name for atom in residue}
+            if not {'N', 'CA', 'C', 'O'}.issubset(atom_names):
+                branched.append((chain_idx, res_idx, chain, residue))
 
-    for residue in branched:
-        for atom in residue.atoms():
-            pos = fixer.positions[atom.index]
-            atom_coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
+    # Abort if any branched residue lies inside the binding-site shell.
+    # gemmi positions are already in Å, so no ×10 conversion.
+    for chain_idx, res_idx, chain, residue in branched:
+        for atom in residue:
+            atom_coord = np.array([atom.pos.x, atom.pos.y, atom.pos.z])
             if np.linalg.norm(ligand_coords - atom_coord, axis=1).min() < SHELL_RADIUS:
                 print(
                     f'Branched residue in shell: '
-                    f'{basename} {residue.name} {residue.chain.id}{residue.id}'
+                    f'{basename} {residue.name} {chain.name}{residue.seqid.num}'
                 )
                 return 'branched_in_shell'
 
+    # Otherwise drop them. Delete per chain in reverse order so the remaining
+    # indices stay valid.
     if branched:
-        modeller = Modeller(fixer.topology, fixer.positions)
-        modeller.delete(branched)
-        fixer.topology = modeller.topology
-        fixer.positions = modeller.positions
+        by_chain = defaultdict(list)
+        for chain_idx, res_idx, _, _ in branched:
+            by_chain[chain_idx].append(res_idx)
+        for chain_idx, res_indices in by_chain.items():
+            chain = model[chain_idx]
+            for res_idx in sorted(res_indices, reverse=True):
+                del chain[res_idx]
 
-    # ── topology may have changed; rebuild the per-chain bookkeeping ──
+    # Rebuild bookkeeping (topology changed)
+    chain_residues = {}
+    chain_id_map = {}
+    chain_heavy_counts = {}
+    for chain_idx, chain in enumerate(model):
+        chain_residues[chain_idx] = list(chain)
+        heavy = 0
+        for res_idx, residue in enumerate(chain):
+            chain_id_map[(chain_idx, res_idx)] = chain.name
+            for atom in residue:
+                if atom.element.name in VALID_BOND_ATOMS:
+                    heavy += 1
+        chain_heavy_counts[chain_idx] = heavy
+
+    # Ensure chain ↔ entity mapping is populated. setup_entities preserves
+    # the SEQRES-derived full_sequence on entities that already exist.
+    _setup_source_entities(structure)
+    chain_to_entity = _map_chains_to_entities(structure)
+
+    # Add ACE/NME to the SEQRES of qualifying chains, via their entity.
+    # Multiple chains can share one entity (homodimers etc.), so we cap each
+    # entity at most once.
+    capped_entity_ids = set()
+    for chain_idx, chain in enumerate(model):
+        if chain_heavy_counts[chain_idx] <= 100:
+            continue
+        num_aa = sum(1 for r in chain if r.name in STANDARD_AA)
+        if num_aa <= 10:
+            continue
+
+        ent = chain_to_entity.get(chain.name)
+        if ent is None or id(ent) in capped_entity_ids:
+            continue
+        if not ent.full_sequence:
+            continue
+
+        # full_sequence is a list of strings; one entry per SEQRES position.
+        # Each entry may be "RES" or "RES1,RES2" for microheterogeneity, so
+        # split on comma when checking what's already there.
+        first = ent.full_sequence[0].split(',')[0]
+        last  = ent.full_sequence[-1].split(',')[0]
+        if first != 'ACE':
+            ent.full_sequence.insert(0, 'ACE')
+        if last != 'NME':
+            ent.full_sequence.append('NME')
+        capped_entity_ids.add(id(ent))
+
+    seqres_path = f'{DATA_DIR}/pdb/seqres/{basename}.pdb'
+    opts = gemmi.PdbWriteOptions()
+    opts.ter_ignores_type = True
+    structure.write_pdb(seqres_path, opts)
+
+    fixer = PDBFixer(filename = seqres_path)
+    # chain_residues now needs to track the reloaded PDBFixer topology,
+    # not the gemmi model — downstream code calls residue.atoms() and
+    # indexes into fixer.positions.
     chain_residues = {}
     chain_id_map = {}
     chain_heavy_counts = {}
@@ -873,16 +893,6 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                     heavy += 1
         chain_heavy_counts[chain.index] = heavy
 
-    # Save intermediate file for later capping
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_path = f'{tmp_dir}/{basename}_seqres.pdb'
-        with open(tmp_path, "w") as fh:
-            PDBFile.writeFile(fixer.topology, fixer.positions, fh)
-
-        seqres_path = f'{DATA_DIR}/pdb/seqres/{basename}.pdb'
-        _add_seqres_with_caps(tmp_path, seqres_path, chain_heavy_counts)
-
-    fixer = PDBFixer(filename = seqres_path)
     fixer.findNonstandardResidues()
 
     # Apply custom substitutions and default-to-ALA fallback
@@ -1183,4 +1193,4 @@ def wrapper(num_cores = 1):
 
 if __name__ == '__main__':
     #wrapper(num_cores = 100)
-    main('6ugc')
+    main('6aro')
