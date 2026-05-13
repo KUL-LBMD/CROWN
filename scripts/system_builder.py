@@ -120,9 +120,8 @@ def build_ccd_prefix_index(ccd_cache: dict) -> dict[str, list[str]]:
 
 def resolve_ccd_code(
     observed_name: str,
-    observed_atom_names: set[str],
-    ccd_cache: dict,
     prefix_index: dict[str, list[str]],
+    pdb_id: str
 ) -> str | None:
     """Resolve a possibly-truncated residue name to its full CCD code.
 
@@ -142,20 +141,14 @@ def resolve_ccd_code(
     # Fast path: single candidate, and it matches exactly.
     if len(candidates) == 1 and candidates[0] == observed_name:
         return observed_name
-
-    scored: list[tuple[int, int, str]] = []  # (surplus, not_exact_len, code)
-    for code in candidates:
-        atoms = set(ccd_cache[code]["atoms"])
-        if not observed_atom_names.issubset(atoms):
-            continue
-        surplus = len(atoms) - len(observed_atom_names)
-        not_exact_len = 0 if len(code) == len(observed_name) else 1
-        scored.append((surplus, not_exact_len, code))
-
-    if not scored:
-        return None
-    scored.sort()
-    return scored[0][2]
+    
+    # Here we check for matching in the original mmCIF file
+    structure = gemmi.read_structure(f'{DATA_DIR}/mmCIF/raw/{pdb_id}.cif')
+    model = structure[0]
+    res_names = set([res.name for chain in model for res in chain])
+    for resname in res_names:
+        if resname[:3].upper() == observed_name[:3]:
+            return resname
 
 def _parse_ccd_charge(value: str) -> int:
     """Parse a CCD ``_chem_comp_atom.charge`` field.
@@ -340,7 +333,7 @@ def _sanitize_with_fallback(mol: Chem.Mol, label: str) -> Chem.Mol:
     return mol
 
 def build_rdkit_mols_from_chain(
-    chain: gemmi.Chain, ccd_cache: dict, prefix_index: dict
+    chain: gemmi.Chain, ccd_cache: dict, prefix_index: dict, pdb_id: str
 ) -> list[Chem.Mol]:
     """Build one RDKit ``Mol`` per connected fragment of a gemmi chain.
  
@@ -365,7 +358,7 @@ def build_rdkit_mols_from_chain(
     for res_i, residue in enumerate(residues):
  
         observed_atoms = {normalize(a.name) for a in residue if a.element.name not in ("H", "D")}
-        resolved = resolve_ccd_code(residue.name, observed_atoms, ccd_cache, prefix_index)
+        resolved = resolve_ccd_code(residue.name, prefix_index, pdb_id)
         template = ccd_cache.get(resolved) if resolved else None
         template_atoms = template["atoms"] if template is not None else {}
  
@@ -673,7 +666,7 @@ def process_pdb(basename: str) -> None:
                 shutil.rmtree(out_dir)
                 return
             
-            mols = build_rdkit_mols_from_chain(chain, ccd_cache, prefix_index)
+            mols = build_rdkit_mols_from_chain(chain, ccd_cache, prefix_index, basename[:4])
             if mols is None:
 
                 print(f'{basename} - {chain.name} - Molecule building failed')
