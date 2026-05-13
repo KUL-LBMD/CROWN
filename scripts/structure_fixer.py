@@ -1129,4 +1129,4 @@ def wrapper(num_cores = 1):
 
 if __name__ == '__main__':
     #wrapper(num_cores = 100)
-    main('7ow4')
+    main('6ugc')
