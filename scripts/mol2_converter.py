@@ -65,16 +65,12 @@ def extract_chain_as_pdb(structure: gemmi.Structure, chain_name: str, out_path: 
     """Write a PDB containing only `chain_name` from `structure`."""
     s = structure.clone()
     model = s[0]
-    for chain in list(model):
 
-        residues = set([res.name for res in chain])
-        print(f'{chain.name} - {residues}')
+    for i in range(len(model) - 1, -1, -1):
+        if model[i].name != 'A':
+            del model[i]
 
-        if chain.name != chain_name:
-            model.remove_chain(chain.name)
-            print(f'Removing chain {chain.name}')
     s.write_pdb(str(out_path))
-
 
 # ---------------------------------------------------------------------------
 # Per-system processing
