@@ -391,7 +391,7 @@ def build_rdkit_mols_from_chain(
     for res_i, residue in enumerate(residues):
         
         observed_atoms = {normalize(a.name) for a in residue if a.element.name not in ("H", "D")}
-        resolved = resolve_ccd_code(residue.name, observed_atoms, ccd_cache, prefix_index)
+        resolved = resolve_ccd_code(residue.name, prefix_index, pdb_id)
         template = ccd_cache.get(resolved) if resolved else None
  
         if template is None:
@@ -714,8 +714,8 @@ def main():
     # ensure the cache file exists BEFORE spawning workers
     build_ccd_atoms_bonds_cache()
 
-    #process_pdb('7t36_B')
-    Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
+    process_pdb('7hbm_B')
+    #Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
 
 if __name__ == '__main__':
     main()

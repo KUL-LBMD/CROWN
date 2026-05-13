@@ -865,5 +865,5 @@ def safe_refine_system(input_dir):
   
 if __name__ == '__main__':
 	subdir_list = os.listdir(f'{DATA_DIR}/systems')
-	Parallel(n_jobs=72, verbose=10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)
-	#safe_refine_system('4mux_D')
+	#Parallel(n_jobs=72, verbose=10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)
+	safe_refine_system('7hbm_B')

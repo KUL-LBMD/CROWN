@@ -66,8 +66,13 @@ def extract_chain_as_pdb(structure: gemmi.Structure, chain_name: str, out_path: 
     s = structure.clone()
     model = s[0]
     for chain in list(model):
+
+        residues = set([res.name for res in chain])
+        print(f'{chain.name} - {residues}')
+
         if chain.name != chain_name:
             model.remove_chain(chain.name)
+            print(f'Removing chain {chain.name}')
     s.write_pdb(str(out_path))
 
 
@@ -88,6 +93,9 @@ def process_system(subdir: str, tmp_dir: Path) -> None:
 
     lig_sdf_min = src / 'chain_A_minimized.sdf'
     if lig_sdf_min.is_file():
+
+        print('Working in ligand mode')
+
         # --- Case 1: SDF ligand available; identify the closest receptor chain.
         shutil.copy(data / 'systems' / subdir / 'chain_A.sdf',
                     complex_dir / 'ligand.sdf')
@@ -104,6 +112,8 @@ def process_system(subdir: str, tmp_dir: Path) -> None:
     else:
         # --- Case 2: cofactor-style ligand (HEM, MGD, ...). Chain A is the ligand.
         chain_name = 'A'
+
+        print('Working in cofactor mode')
 
         for struct, suffix, sdf_name in [
             (structure, '', 'ligand.sdf'),
@@ -138,10 +148,10 @@ def main(subdir):
 	with tempfile.TemporaryDirectory() as tmp:
 		tmp_dir = Path(tmp)
 
-		if os.path.isdir(f'{DATA_DIR}/complexes/{subdir}'):
-			file_list = os.listdir(f'{DATA_DIR}/complexes/{subdir}')
-			if len(file_list) == 4:
-				return
+		#if os.path.isdir(f'{DATA_DIR}/complexes/{subdir}'):
+		#	file_list = os.listdir(f'{DATA_DIR}/complexes/{subdir}')
+		#	if len(file_list) == 4:
+		#		return
 
 		try:
 			process_system(subdir, tmp_dir)
@@ -153,4 +163,5 @@ def main(subdir):
 if __name__ == '__main__':
 	systems_root = Path(DATA_DIR) / 'processed_systems'
 	subdirs = sorted(p.name for p in systems_root.iterdir() if p.is_dir())
-	Parallel(n_jobs = 32, verbose = 10, backend = 'multiprocessing')(delayed(main)(subdir) for subdir in subdirs)
+	#Parallel(n_jobs = 32, verbose = 10, backend = 'multiprocessing')(delayed(main)(subdir) for subdir in subdirs)
+	main('6nlg_Q')
