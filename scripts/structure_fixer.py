@@ -757,6 +757,47 @@ def build_pdb(structure: gemmi.Structure, chain_id):
     _assign_subchain_ids(new_structure)
     return new_structure
 
+def _add_seqres_with_caps(input_pdb: str, output_pdb: str, chain_heavy_counts):
+	"""
+	Add SEQRES records with ACE/NME caps to a PDB file.
+	PDBFixer will then detect these as 'missing' and build them.
+	"""
+
+	# First, read the structure to get chain sequences
+	pdb = PDBFile(input_pdb)
+
+	# Build sequence for each chain
+	chain_sequences = {}
+	for chain in pdb.topology.chains():
+		residues = list(chain.residues())
+		seq = [r.name for r in residues]
+		num_aa = sum(1 for r in residues if r.name in STANDARD_AA)
+		num_atoms = chain_heavy_counts.get(chain.index, 0)
+		if num_aa > 10 and num_atoms > 100:
+			# Add ACE at start, NME at end
+			if seq[0] != 'ACE':
+				seq = ['ACE'] + seq
+			if seq[-1] != 'NME':
+				seq = seq + ['NME']
+		chain_sequences[chain.id] = seq
+
+	# Now write modified PDB with SEQRES records
+	with open(input_pdb, 'r') as f_in, open(output_pdb, 'w') as f_out:
+		# First write SEQRES records for each chain
+		for chain_id, seq in chain_sequences.items():
+			# SEQRES records: max 13 residues per line
+			for i in range(0, len(seq), 13):
+				chunk = seq[i:i+13]
+				line_num = (i // 13) + 1
+				seqres_line = f"SEQRES {line_num:>3} {chain_id} {len(seq):>4}  "
+				seqres_line += " ".join(f"{res:>3}" for res in chunk)
+				f_out.write(seqres_line + '\n')
+
+		# Then copy the rest of the file (skip existing SEQRES lines)
+		for line in f_in:
+			if not line.startswith('SEQRES'):
+				f_out.write(line)
+
 def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarray):
     """
     Use PDBFixer to find nonstandard residues, missing residues and unresolved atoms.
@@ -818,8 +859,6 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
         fixer.topology = modeller.topology
         fixer.positions = modeller.positions
 
-    fixer.findNonstandardResidues()
-
     # ── topology may have changed; rebuild the per-chain bookkeeping ──
     chain_residues = {}
     chain_id_map = {}
@@ -833,6 +872,18 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                 if atom.element is not None and atom.element.symbol in VALID_BOND_ATOMS:
                     heavy += 1
         chain_heavy_counts[chain.index] = heavy
+
+    # Save intermediate file for later capping
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tmp_path = f'{tmp_dir}/{basename}_seqres.pdb'
+        with open(tmp_path, "w") as fh:
+            PDBFile.writeFile(fixer.topology, fixer.positions, fh)
+
+        seqres_path = f'{DATA_DIR}/pdb/seqres/{basename}.pdb'
+        _add_seqres_with_caps(tmp_path, seqres_path, chain_heavy_counts)
+
+    fixer = PDBFixer(filename = seqres_path)
+    fixer.findNonstandardResidues()
 
     # Apply custom substitutions and default-to-ALA fallback
     already_flagged = {r for r, _ in fixer.nonstandardResidues}
@@ -911,9 +962,12 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
 
     for (chain_idx, ins_pos), residues in fixer.missingResidues.items():
         n_chain = chain_res_counts.get(chain_idx, 0)
-        if ins_pos == 0 or ins_pos == n_chain:
-            continue  # terminal, handled by the cap above
-        flanks = [chain_residues[chain_idx][ins_pos - 1], chain_residues[chain_idx][ins_pos]]
+        if ins_pos == 0:
+            flanks = [chain_residues[chain_idx][ins_pos]]
+        elif ins_pos == n_chain:
+            flanks = [chain_residues[chain_idx][ins_pos - 1]]
+        else:
+            flanks = [chain_residues[chain_idx][ins_pos - 1], chain_residues[chain_idx][ins_pos]]
         for res in flanks:
             for atom in res.atoms():
                 pos = fixer.positions[atom.index]
