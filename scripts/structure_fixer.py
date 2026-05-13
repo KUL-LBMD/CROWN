@@ -18,6 +18,7 @@ from itertools import product
 import string
 import pickle
 import functools
+import traceback
 
 # File management
 import os
@@ -770,116 +771,55 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
 	``False`` so the caller can abort.
     """
 
-    # Read with gemmi so SEQRES survives the round-trip
-    structure = gemmi.read_structure(f'{DATA_DIR}/pdb/raw/{basename}.pdb')
-    model = structure[0]
+    fixer = PDBFixer(filename = f'{DATA_DIR}/pdb/raw/{basename}.pdb')
 
-    # Initial bookkeeping; chain_idx is the 0-based position in the model,
-    # which will match PDBFixer's chain.index once the file is reloaded.
+    # ── Branched residues merged into polymer chains ──
+    # After merge_bonded_chains, glycans (NAG/BMA/MAN/…) and other covalent
+    # attachments end up on the protein chain. Detect them as non-FIXED
+    # residues lacking a CA backbone atom inside a long (>100 heavy atom)
+    # chain. Drop them if they sit outside the binding-site shell; abort if
+    # any of their atoms fall inside it.
     chain_heavy_counts = {}
-    chain_id_map = {}                       # (chain_idx, res_idx) -> chain name
-    for chain_idx, chain in enumerate(model):
+    chain_id_map = {}
+    for chain in fixer.topology.chains():
         heavy = 0
-        for res_idx, residue in enumerate(chain):
-            chain_id_map[(chain_idx, res_idx)] = chain.name
-            for atom in residue:
-                if atom.element.name in VALID_BOND_ATOMS:
+        for residue in chain.residues():
+            chain_id_map[residue.index] = chain.id
+            for atom in residue.atoms():
+                if atom.element is not None and atom.element.symbol in VALID_BOND_ATOMS:
                     heavy += 1
-        chain_heavy_counts[chain_idx] = heavy
+        chain_heavy_counts[chain.index] = heavy
 
-    # Branched: non-FIXED, missing backbone, sitting on a long chain
-    branched = []                           # (chain_idx, res_idx, chain, residue)
-    for chain_idx, chain in enumerate(model):
-        if chain.name == 'Z':
+    branched = []
+    for residue in fixer.topology.residues():
+        if chain_id_map.get(residue.index) == "Z":
             continue
-        if chain_heavy_counts[chain_idx] <= 100:
+        if residue.name in FIXED_RESIDUES:
             continue
-        for res_idx, residue in enumerate(chain):
-            if residue.name in FIXED_RESIDUES:
-                continue
-            atom_names = {atom.name for atom in residue}
-            if not {'N', 'CA', 'C', 'O'}.issubset(atom_names):
-                branched.append((chain_idx, res_idx, chain, residue))
+        if chain_heavy_counts.get(residue.chain.index, 0) <= 100:
+            continue
+        atom_names = {atom.name for atom in residue.atoms()}
+        if not {'N', 'CA', 'C', 'O'}.issubset(atom_names):
+            branched.append(residue)
 
-    # Abort if any branched residue lies inside the binding-site shell.
-    # gemmi positions are already in Å, so no ×10 conversion.
-    for chain_idx, res_idx, chain, residue in branched:
-        for atom in residue:
-            atom_coord = np.array([atom.pos.x, atom.pos.y, atom.pos.z])
+    for residue in branched:
+        for atom in residue.atoms():
+            pos = fixer.positions[atom.index]
+            atom_coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
             if np.linalg.norm(ligand_coords - atom_coord, axis=1).min() < SHELL_RADIUS:
                 print(
                     f'Branched residue in shell: '
-                    f'{basename} {residue.name} {chain.name}{residue.seqid.num}'
+                    f'{basename} {residue.name} {residue.chain.id}{residue.id}'
                 )
                 return 'branched_in_shell'
 
-    # Otherwise drop them. Delete per chain in reverse order so the remaining
-    # indices stay valid.
     if branched:
-        by_chain = defaultdict(list)
-        for chain_idx, res_idx, _, _ in branched:
-            by_chain[chain_idx].append(res_idx)
-        for chain_idx, res_indices in by_chain.items():
-            chain = model[chain_idx]
-            for res_idx in sorted(res_indices, reverse=True):
-                del chain[res_idx]
+        modeller = Modeller(fixer.topology, fixer.positions)
+        modeller.delete(branched)
+        fixer.topology = modeller.topology
+        fixer.positions = modeller.positions
 
-    # Rebuild bookkeeping (topology changed)
-    chain_residues = {}
-    chain_id_map = {}
-    chain_heavy_counts = {}
-    for chain_idx, chain in enumerate(model):
-        chain_residues[chain_idx] = list(chain)
-        heavy = 0
-        for res_idx, residue in enumerate(chain):
-            chain_id_map[(chain_idx, res_idx)] = chain.name
-            for atom in residue:
-                if atom.element.name in VALID_BOND_ATOMS:
-                    heavy += 1
-        chain_heavy_counts[chain_idx] = heavy
-
-    # Ensure chain ↔ entity mapping is populated. setup_entities preserves
-    # the SEQRES-derived full_sequence on entities that already exist.
-    _setup_source_entities(structure)
-    chain_to_entity = _map_chains_to_entities(structure)
-
-    # Add ACE/NME to the SEQRES of qualifying chains, via their entity.
-    # Multiple chains can share one entity (homodimers etc.), so we cap each
-    # entity at most once.
-    capped_entity_ids = set()
-    for chain_idx, chain in enumerate(model):
-        if chain_heavy_counts[chain_idx] <= 100:
-            continue
-        num_aa = sum(1 for r in chain if r.name in STANDARD_AA)
-        if num_aa <= 10:
-            continue
-
-        ent = chain_to_entity.get(chain.name)
-        if ent is None or id(ent) in capped_entity_ids:
-            continue
-        if not ent.full_sequence:
-            continue
-
-        # full_sequence is a list of strings; one entry per SEQRES position.
-        # Each entry may be "RES" or "RES1,RES2" for microheterogeneity, so
-        # split on comma when checking what's already there.
-        first = ent.full_sequence[0].split(',')[0]
-        last  = ent.full_sequence[-1].split(',')[0]
-        if first != 'ACE':
-            ent.full_sequence.insert(0, 'ACE')
-        if last != 'NME':
-            ent.full_sequence.append('NME')
-        capped_entity_ids.add(id(ent))
-
-    seqres_path = f'{DATA_DIR}/pdb/seqres/{basename}.pdb'
-    opts = gemmi.PdbWriteOptions()
-    opts.ter_ignores_type = True
-    structure.write_pdb(seqres_path, opts)
-
-    fixer = PDBFixer(filename = seqres_path)
-    # chain_residues now needs to track the reloaded PDBFixer topology,
-    # not the gemmi model — downstream code calls residue.atoms() and
-    # indexes into fixer.positions.
+    # ── topology may have changed; rebuild the per-chain bookkeeping ──
     chain_residues = {}
     chain_id_map = {}
     chain_heavy_counts = {}
@@ -968,7 +908,23 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
             fixer.missingResidues[(chain_idx, ins_pos)] = residues[:MAX_TERMINAL_EXTENSION]
         # else: internal gap, leave it alone
 
-    print(fixer.missingResidues)
+    for chain in fixer.topology.chains():
+        residues = list(chain.residues())
+        if not residues:
+            continue
+        num_aa = sum(1 for r in residues if r.name in STANDARD_AA)
+        num_atoms = chain_heavy_counts.get(chain.index, 0)
+        if num_aa <= 10 or num_atoms <= 100:
+            continue
+
+        n_res = len(residues)
+        n_key = (chain.index, 0)
+        c_key = (chain.index, n_res)
+
+        if residues[0].name != 'ACE':
+            fixer.missingResidues[n_key] = ['ACE'] + fixer.missingResidues.get(n_key, [])
+        if residues[-1].name != 'NME':
+            fixer.missingResidues[c_key] = fixer.missingResidues.get(c_key, []) + ['NME']
 
     for (chain_idx, ins_pos), residues in fixer.missingResidues.items():
         n_chain = chain_res_counts.get(chain_idx, 0)
@@ -999,7 +955,6 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                 )
                 return 'missing_atoms_in_shell'
 
-    print(fixer.missingAtoms)
     fixer.addMissingAtoms()
 
     with open(f'{DATA_DIR}/pdb/fixed/{basename}.pdb', "w") as fh:
@@ -1018,15 +973,18 @@ def check_structure(basename):
     for chain in model:
         for residue in chain:
             if residue.name in FAILURE_RESIDUES:
+                print(f'{basename} - {residue.name} in structure')
                 return False
             
             n_heavy = sum(1 for atom in residue if not atom.is_hydrogen())
-            if n_heavy > 100:
+            if n_heavy > 90:
+                print(f'{basename} - Big motherfucker {residue.name} in structure')
                 return False
             
             elements = {atom.element.name for atom in residue}
             if 'C' in elements and not residue.name in METALLOCOFACTORS:
                 if not elements.issubset({'C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'H', 'D'}):
+                    print(f'{basename} - {residue.name} in structure')
                     return False
                 
     return True
@@ -1111,16 +1069,16 @@ def main(pdb_id):
 
                 new_structure.write_pdb(f'{DATA_DIR}/pdb/raw/{basename}.pdb', opts)
 
-                print(chain_id)
-
                 # 5.3 missing and nonstand residues with PDBFixer
                 update_element_positions(f'{DATA_DIR}/pdb/raw/{basename}.pdb')
                 ligand_coords = _get_chain_coords(new_structure, 'Z')
 
                 fixer_status = fix_missing_and_nonstandard_residues(basename, ligand_coords)
-                checker_status = check_structure(basename)
-                if not checker_status:
-                    os.remove(f'{DATA_DIR}/pdb/fixed/{basename}.pdb')
+
+                if fixer_status == 'ok':
+                    checker_status = check_structure(basename)
+                    if not checker_status:
+                        os.remove(f'{DATA_DIR}/pdb/fixed/{basename}.pdb')
                 
                 if fixer_status == 'modified_in_shell':
                     flags['has_modified_residues_in_shell'] = True
@@ -1138,6 +1096,7 @@ def main(pdb_id):
 
     except Exception as e:
         print(f'{pdb_id} - {e}')
+        traceback.print_exc()
         flags['failure_reason'] = f'exception: {type(e).__name__}: {e}'
 
     return flags
@@ -1192,5 +1151,5 @@ def wrapper(num_cores = 1):
                 f.write(f"  {exc}\n")
 
 if __name__ == '__main__':
-    #wrapper(num_cores = 100)
-    main('6aro')
+    #wrapper(num_cores = 96)
+    main('8bdl')

@@ -4,7 +4,7 @@ COMMON_ARTIFACTS = {'02U', '12P', '13P', '144', '15P', '16P', '1EM', '1PE', '1PG
                     '3SY', '3V3', '543', '6JZ', '6PE', '7E8', '7E9', '7I7', '7N5', '7PE', '7PG', '7PH', '90A', '9FO', '9JE', '9YU', 'AAE', 'ABA', 'AE3', 
                     'AE4', 'AGA', 'AKR', 'AUC', 'B3H', 'B3P', 'B4T', 'B4X', 'BAM', 'BCN', 'BDN', 'BE7', 'BEN', 'BET', 'BEZ', 'BGL', 'BHG', 'BNG', 'BNZ', 
                     'BOG', 'BTB', 'BU1', 'BXC', 'C10', 'C14', 'C8E', 'CAC', 'CAD', 'CAQ', 'CD4', 'CE1', 'CE9', 'CHT', 'CIT', 'CN3', 'CN6', 'CPS', 'CXE', 
-                    'CXS', 'D10', 'D12', 'D1D', 'D22', 'DAO', 'DD9', 'DDQ', 'DDR', 'DEP', 'DET', 'DHB', 'DHJ', 'DIO', 'DKA', 'DMF', 'DMI', 'DMR', 'DOX', 
+                    'CXS', 'D10', 'D12', 'D1D', 'D22', 'DAO', 'DD9', 'DDQ', 'DDR', 'DEP', 'DET', 'DHB', 'DHJ', 'DIO', 'DKA', 'DMS', 'DMF', 'DMI', 'DMR', 'DOX', 
                     'DPG', 'DR6', 'DRE', 'DTD', 'DTT', 'DTU', 'DTV', 'E4N', 'EAP', 'EEE', 'EPE', 'ETE', 'ETF', 'ETX', 'F09', 'F4R', 'FJO', 'FTT', 'FW5', 
                     'GLV', 'GOL', 'GVT', 'GYF', 'HAE', 'HAI', 'HCA', 'HCS', 'HED', 'HEX', 'HEZ', 'HP6', 'HSG', 'HSH', 'HT3', 'HTG', 'HTH', 'HTO', 'HZA', 
                     'I3C', 'ICT', 'IHP', 'IHS', 'IMD', 'IPH', 'JDJ', 'K12', 'KDO', 'L1P', 'L2C', 'L2P', 'L3P', 'L4P', 'LAC', 'LDA', 'LI1', 'LMR', 'LMT', 
