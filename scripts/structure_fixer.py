@@ -57,7 +57,7 @@ CLASH_RADIUS = 1.8
 CHAIN_RADIUS = 4.0
 SHELL_RADIUS = 6.0
 
-MAX_TERMINAL_EXTENSION = 5
+MAX_TERMINAL_EXTENSION = 3
 
 ### Helper functions ###
 #-----------------------
@@ -823,15 +823,29 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     waters_to_remove = []
     for residue in fixer.topology.residues():
         if residue.name in WATER_NAMES:
-            for atom in residue.atoms():
-                pos = fixer.positions[atom.index]
-                atom_coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
-                if np.linalg.norm(ligand_coords - atom_coord, axis=1).min() > SHELL_RADIUS:
-                    waters_to_remove.append(residue)
+            residue.name = 'HOH'
+            atom = next(residue.atoms())
+            pos = fixer.positions[atom.index]
+            atom_coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
+            if np.linalg.norm(ligand_coords - atom_coord, axis=1).min() > SHELL_RADIUS:
+                waters_to_remove.append(residue)
 
     if waters_to_remove:
         modeller = Modeller(fixer.topology, fixer.positions)
         modeller.delete(waters_to_remove)
+        fixer.topology = modeller.topology
+        fixer.positions = modeller.positions
+
+    # Remove H or D atoms
+    atoms_to_remove = []
+    for residue in fixer.topology.residues():
+        for atom in residue.atoms():
+            if atom.element.atomic_number == 1:
+                atoms_to_remove.append(atom)
+
+    if atoms_to_remove:
+        modeller = Modeller(fixer.topology, fixer.positions)
+        modeller.delete(atoms_to_remove)
         fixer.topology = modeller.topology
         fixer.positions = modeller.positions
 
@@ -973,6 +987,7 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                 )
                 return 'missing_atoms_in_shell'
 
+    # Impossible to build missing non-standard residues: switch these to ALA instead
     for key, value in fixer.missingResidues.items():
         # value is a list of resnames: if any entry is non-standard, replace it with ALA
         for i in range(len(value)):
