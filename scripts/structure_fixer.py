@@ -868,10 +868,16 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
         if chain_heavy_counts.get(r.chain.index, 0) > 100
     ]
 
+    n_pos = len(fixer.positions)
+
     # Check each remaining nonstandard residue for proximity to any ligand atom
     if fixer.nonstandardResidues:
         for residue, _replacement in fixer.nonstandardResidues:
             for atom in residue.atoms():
+
+                if atom.index >= n_pos:
+                    continue
+
                 pos = fixer.positions[atom.index]
                 atom_coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
                 dists = np.linalg.norm(ligand_coords - atom_coord, axis=1)
@@ -926,6 +932,8 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
         if residues[-1].name != 'NME':
             fixer.missingResidues[c_key] = fixer.missingResidues.get(c_key, []) + ['NME']
 
+    n_pos = len(fixer.positions)
+
     for (chain_idx, ins_pos), residues in fixer.missingResidues.items():
         n_chain = chain_res_counts.get(chain_idx, 0)
         if ins_pos == 0:
@@ -936,15 +944,21 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
             flanks = [chain_residues[chain_idx][ins_pos - 1], chain_residues[chain_idx][ins_pos]]
         for res in flanks:
             for atom in res.atoms():
+                if atom.index >= n_pos:
+                    continue
                 pos = fixer.positions[atom.index]
                 coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
                 if np.linalg.norm(ligand_coords - coord, axis=1).min() < SHELL_RADIUS:
-                    print('Gap in shell')
+                    print(f'{basename} - Gap in shell')
                     return 'gap_in_shell'
 
     # Check if any remaining residue with missing atoms is near the ligand
+    n_pos = len(fixer.positions)
+
     for residue in list(fixer.missingAtoms.keys()):
         for atom in residue.atoms():
+            if atom.index >= n_pos:
+                continue
             pos = fixer.positions[atom.index]
             atom_coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
             dists = np.linalg.norm(ligand_coords - atom_coord, axis=1)
@@ -954,6 +968,12 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                     f'{basename} {residue.name} {residue.chain.id}{residue.id}'
                 )
                 return 'missing_atoms_in_shell'
+
+    for key, value in fixer.missingResidues.items():
+        # value is a list of resnames: if any entry is non-standard, replace it with ALA
+        for i in range(len(value)):
+            if not value[i] in FIXED_RESIDUES:
+                value[i] = 'ALA'
 
     fixer.addMissingAtoms()
 
@@ -1151,5 +1171,5 @@ def wrapper(num_cores = 1):
                 f.write(f"  {exc}\n")
 
 if __name__ == '__main__':
-    #wrapper(num_cores = 96)
-    main('8bdl')
+    wrapper(num_cores = 96)
+    #main('5ubo')
