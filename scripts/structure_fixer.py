@@ -914,24 +914,6 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
             fixer.missingResidues[(chain_idx, ins_pos)] = residues[:MAX_TERMINAL_EXTENSION]
         # else: internal gap, leave it alone
 
-    for chain in fixer.topology.chains():
-        residues = list(chain.residues())
-        if not residues:
-            continue
-        num_aa = sum(1 for r in residues if r.name in STANDARD_AA)
-        num_atoms = chain_heavy_counts.get(chain.index, 0)
-        if num_aa <= 10 or num_atoms <= 100:
-            continue
-
-        n_res = len(residues)
-        n_key = (chain.index, 0)
-        c_key = (chain.index, n_res)
-
-        if residues[0].name != 'ACE':
-            fixer.missingResidues[n_key] = ['ACE'] + fixer.missingResidues.get(n_key, [])
-        if residues[-1].name != 'NME':
-            fixer.missingResidues[c_key] = fixer.missingResidues.get(c_key, []) + ['NME']
-
     n_pos = len(fixer.positions)
 
     for (chain_idx, ins_pos), residues in fixer.missingResidues.items():
@@ -956,6 +938,12 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     n_pos = len(fixer.positions)
 
     for residue in list(fixer.missingAtoms.keys()):
+
+        missing = fixer.missingAtoms[residue]
+        # Skip the shell check if the only missing atom is OXT.
+        if len(missing) == 1 and missing[0].name == 'OXT':
+            continue
+
         for atom in residue.atoms():
             if atom.index >= n_pos:
                 continue
@@ -1172,4 +1160,4 @@ def wrapper(num_cores = 1):
 
 if __name__ == '__main__':
     wrapper(num_cores = 96)
-    #main('5ubo')
+    #main('6aro')

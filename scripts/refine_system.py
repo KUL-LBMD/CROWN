@@ -433,7 +433,7 @@ def _prepare_amber(tmp_dir, pdb_path, special_residues):
 
 	Modeller.loadHydrogenDefinitions(f'{DATA_DIR}/custom_xml/protonation/special_residues_amber.xml')
 
-	fixer = PDBFixer(seqres_path)
+	fixer = PDBFixer(capped_path)
 	fixer.findMissingResidues()
 	fixer.findMissingAtoms()
 	fixer.addMissingAtoms()
@@ -866,4 +866,4 @@ def safe_refine_system(input_dir):
 if __name__ == '__main__':
 	subdir_list = os.listdir(f'{DATA_DIR}/systems')
 	#Parallel(n_jobs=72, verbose=10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)
-	safe_refine_system('7hbm_B')
+	safe_refine_system('6aro_E')
