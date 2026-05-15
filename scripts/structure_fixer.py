@@ -819,6 +819,22 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
         fixer.topology = modeller.topology
         fixer.positions = modeller.positions
 
+    # Remove distal water residues
+    waters_to_remove = []
+    for residue in fixer.topology.residues():
+        if residue.name in WATER_NAMES:
+            for atom in residue.atoms():
+                pos = fixer.positions[atom.index]
+                atom_coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
+                if np.linalg.norm(ligand_coords - atom_coord, axis=1).min() > SHELL_RADIUS:
+                    waters_to_remove.append(residue)
+
+    if waters_to_remove:
+        modeller = Modeller(fixer.topology, fixer.positions)
+        modeller.delete(waters_to_remove)
+        fixer.topology = modeller.topology
+        fixer.positions = modeller.positions
+
     # ── topology may have changed; rebuild the per-chain bookkeeping ──
     chain_residues = {}
     chain_id_map = {}

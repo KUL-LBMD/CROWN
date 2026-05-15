@@ -46,7 +46,7 @@ def obabel_convert(in_fmt: str, in_path: Path, out_fmt: str, out_path: Path) -> 
         raise RuntimeError(f'obabel produced no output for {in_path}: {result.stderr.strip()}')
 
 
-def closest_chain_to_ligand(model: gemmi.Model, lig_tree: KDTree) -> Optional[str]:
+def _closest_chain_to_ligand(model: gemmi.Model, lig_tree: KDTree) -> Optional[str]:
     """Return the name of the chain whose nearest atom to the ligand is closest."""
     best_name: Optional[str] = None
     best_dist = float('inf')
@@ -65,12 +65,11 @@ def extract_chain_as_pdb(structure: gemmi.Structure, chain_name: str, out_path: 
     """Write a PDB containing only `chain_name` from `structure`."""
     s = structure.clone()
     model = s[0]
-
-    for i in range(len(model) - 1, -1, -1):
-        if model[i].name != 'A':
-            del model[i]
-
+    for chain in list(model):
+        if chain.name != chain_name:
+            model.remove_chain(chain.name)
     s.write_pdb(str(out_path))
+
 
 # ---------------------------------------------------------------------------
 # Per-system processing
@@ -89,9 +88,6 @@ def process_system(subdir: str, tmp_dir: Path) -> None:
 
     lig_sdf_min = src / 'chain_A_minimized.sdf'
     if lig_sdf_min.is_file():
-
-        print('Working in ligand mode')
-
         # --- Case 1: SDF ligand available; identify the closest receptor chain.
         shutil.copy(data / 'systems' / subdir / 'chain_A.sdf',
                     complex_dir / 'ligand.sdf')
@@ -102,14 +98,12 @@ def process_system(subdir: str, tmp_dir: Path) -> None:
             raise ValueError(f'RDKit failed to parse {lig_sdf_min}')
         lig_tree = KDTree(rdmol.GetConformer().GetPositions())
 
-        chain_name = closest_chain_to_ligand(structure_min[0], lig_tree)
+        chain_name = _closest_chain_to_ligand(structure_min[0], lig_tree)
         if chain_name is None:
             raise RuntimeError(f'No chain with atoms found in {subdir}')
     else:
         # --- Case 2: cofactor-style ligand (HEM, MGD, ...). Chain A is the ligand.
         chain_name = 'A'
-
-        print('Working in cofactor mode')
 
         for struct, suffix, sdf_name in [
             (structure, '', 'ligand.sdf'),
@@ -144,10 +138,10 @@ def main(subdir):
 	with tempfile.TemporaryDirectory() as tmp:
 		tmp_dir = Path(tmp)
 
-		#if os.path.isdir(f'{DATA_DIR}/complexes/{subdir}'):
-		#	file_list = os.listdir(f'{DATA_DIR}/complexes/{subdir}')
-		#	if len(file_list) == 4:
-		#		return
+		if os.path.isdir(f'{DATA_DIR}/complexes/{subdir}'):
+			file_list = os.listdir(f'{DATA_DIR}/complexes/{subdir}')
+			if len(file_list) == 4:
+				return
 
 		try:
 			process_system(subdir, tmp_dir)
@@ -159,5 +153,4 @@ def main(subdir):
 if __name__ == '__main__':
 	systems_root = Path(DATA_DIR) / 'processed_systems'
 	subdirs = sorted(p.name for p in systems_root.iterdir() if p.is_dir())
-	#Parallel(n_jobs = 32, verbose = 10, backend = 'multiprocessing')(delayed(main)(subdir) for subdir in subdirs)
-	main('6nlg_Q')
+	Parallel(n_jobs = 32, verbose = 10, backend = 'multiprocessing')(delayed(main)(subdir) for subdir in subdirs)
