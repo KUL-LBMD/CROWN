@@ -539,10 +539,6 @@ def _reconcile_for_inter_residue_bond(rwmol: Chem.RWMol, atom_idx: int) -> None:
 
     central = dbl.GetOtherAtom(atom)
 
-    print('You are here')
-    print(f'{atom_idx} - {central}')
-
-
     # Look for a singly-bonded, negatively-charged neighbour we can promote.
     for b in central.GetBonds():
         if b.GetIdx() == dbl.GetIdx():
@@ -619,14 +615,10 @@ def protonate_ligand(mol: Chem.Mol) -> Chem.Mol:
     Protonate RDMol at given pH using dimorphite
     """
 
-    print('You are currently here')
-
     # Strip existing Hs, protonate at target pH
     mol_noh = strip_mol(mol)
     if mol_noh is None:
         return None
-
-    print('You are now here')
 
     protonated = dl.run_with_mol_list([mol_noh], min_ph = PH, max_ph = PH,
 	        pka_precision=0.0, silent=True
@@ -714,8 +706,8 @@ def main():
     # ensure the cache file exists BEFORE spawning workers
     build_ccd_atoms_bonds_cache()
 
-    process_pdb('6aro_E')
-    #Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
+    #process_pdb('6aro_E')
+    Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
 
 if __name__ == '__main__':
     main()

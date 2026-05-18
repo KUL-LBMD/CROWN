@@ -299,6 +299,33 @@ def select_conformer(structure: gemmi.Structure):
                 for atom in residue:
                     atom.altloc = '\x00'
 
+    # Collapse residue-level microheterogeneity:
+    # if a chain has multiple residues sharing the same (seqid_num, icode),
+    # keep the one with the most heavy atoms (tiebreak: mean occupancy).
+    for model in structure:
+        for chain in model:
+            groups: defaultdict[tuple, list[int]] = defaultdict(list)
+            for i, res in enumerate(chain):
+                groups[(res.seqid.num, res.seqid.icode)].append(i)
+
+            to_remove: list[int] = []
+            for key, indices in groups.items():
+                if len(indices) == 1:
+                    continue
+
+                def score(i: int) -> tuple[int, float]:
+                    res = chain[i]
+                    heavy = [a for a in res if not a.is_hydrogen()]
+                    if not heavy:
+                        return (0, 0.0)
+                    return (len(heavy), sum(a.occ for a in heavy) / len(heavy))
+
+                winner = max(indices, key=score)
+                to_remove.extend(i for i in indices if i != winner)
+
+            for i in sorted(to_remove, reverse=True):
+                del chain[i]
+
     return structure
 
 class OverlapResolver:
@@ -386,25 +413,19 @@ class OverlapResolver:
                 overlaps_to_resolve.append(f"{chain1},{chain2}")
 
         return contact_info, bonds_to_add, overlaps_to_resolve
-    
-    def resolve_overlaps(self, structure: gemmi.Structure, overlaps: List[str]):
-        """
-        Keep the chain with the most heavy atoms
-        """
 
+    def resolve_overlaps(self, structure, overlaps, bonds=None):
         model = structure[0]
-
+        removed = set()
         for overlap_pair in overlaps:
             chain1_id, chain2_id = overlap_pair.split(",")
-
             if _has_chain(model, chain1_id) and _has_chain(model, chain2_id):
-                chain1_count = _count_heavy_atoms(model, chain1_id)
-                chain2_count = _count_heavy_atoms(model, chain2_id)
-
-                if chain1_count > chain2_count:
-                    _remove_chain(model, chain2_id)
+                if _count_heavy_atoms(model, chain1_id) > _count_heavy_atoms(model, chain2_id):
+                    _remove_chain(model, chain2_id); removed.add(chain2_id)
                 else:
-                    _remove_chain(model, chain1_id)
+                    _remove_chain(model, chain1_id); removed.add(chain1_id)
+        if bonds is not None:
+            return [b for b in bonds if not (set(b.split(",")) & removed)]
 
     def merge_bonded_chains(self, structure: gemmi.Structure, bonds: List[str], contact_info):
         """
@@ -1071,7 +1092,7 @@ def main(pdb_id):
         overlap_resolver = OverlapResolver()
         contact_info, bonds_to_add, overlaps_to_resolve = overlap_resolver.detect_contacts(structure)
 
-        overlap_resolver.resolve_overlaps(structure, overlaps_to_resolve)
+        bonds_to_add = overlap_resolver.resolve_overlaps(structure, overlaps_to_resolve, bonds_to_add)
         message = overlap_resolver.merge_bonded_chains(structure, bonds_to_add, contact_info)
         if message == 'alarm':
             return flags
@@ -1191,4 +1212,4 @@ def wrapper(num_cores = 1):
 
 if __name__ == '__main__':
     wrapper(num_cores = 96)
-    #main('6aro')
+    #main('5yem')

@@ -843,8 +843,8 @@ def refine_system(input_dir):
  
 	except Exception as e:
 		print(f'{input_dir} - {e}')
-		#if os.path.isdir(f'{DATA_DIR}/processed_systems/{input_dir}'):
-		#	shutil.rmtree(f'{DATA_DIR}/processed_systems/{input_dir}')
+		if os.path.isdir(f'{DATA_DIR}/processed_systems/{input_dir}'):
+			shutil.rmtree(f'{DATA_DIR}/processed_systems/{input_dir}')
 		logger.exception(f"Refinement failed for {input_dir}")
  
 	finally:
@@ -865,5 +865,5 @@ def safe_refine_system(input_dir):
   
 if __name__ == '__main__':
 	subdir_list = os.listdir(f'{DATA_DIR}/systems')
-	#Parallel(n_jobs=72, verbose=10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)
-	safe_refine_system('6aro_E')
+	Parallel(n_jobs=72, verbose=10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)
+	#safe_refine_system('6aro_E')
