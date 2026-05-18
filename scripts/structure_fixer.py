@@ -817,6 +817,7 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
 
     nucleic_atoms_to_strip = []
     branched = []
+    branched_indices = []
     for chain in fixer.topology.chains():
         if chain.id != 'Z' and chain_heavy_counts.get(chain.index, 0) > 100:
             residues = list(chain.residues())
@@ -831,6 +832,7 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                     if not residue.name in FIXED_RESIDUES:
                         if idx == 0 or idx == n_res - 1:
                             branched.append(residue)
+                            branched_indices.append((chain.id, idx))
                         else:
                             residue.name = replacement_base
                             for atom in residue.atoms():
@@ -842,6 +844,7 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                     if not residue.name in FIXED_RESIDUES:
                         if idx == 0 or idx == n_res - 1:
                             branched.append(residue)
+                            branched_indices.append((chain.id, idx))
 
     for residue in branched:
         for atom in residue.atoms():
@@ -859,6 +862,24 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
         modeller.delete(branched)
         fixer.topology = modeller.topology
         fixer.positions = modeller.positions
+
+        # Remove branched residues also from SEQRES
+        for seq in fixer.sequences:
+            for chain_id, idx in branched_indices:
+                if seq.chainId == chain_id:
+                    if idx == 0:
+                        # Scan forward — unresolved residues may sit before it.
+                        for i, name in enumerate(seq.residues):
+                            if name == residue.name:
+                                del seq.residues[i]
+                                break
+
+                    else:
+                        # Scan backward for the C-terminal case.
+                        for i in range(len(seq.residues) - 1, -1, -1):
+                            if seq.residues[i] == residue.name:
+                                del seq.residues[i]
+                                break
 
     # Remove distal water residues
     waters_to_remove = []
@@ -963,9 +984,6 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
 
     fixer.findMissingResidues()
     fixer.findMissingAtoms()
-
-    # Exclude chain Z from missing residues
-    chain_idx_to_id = {c.index: c.id for c in fixer.topology.chains()}
 
     # Cap terminal extensions at 5 residues. PDBFixer's missingResidues key is
     # (chain_index, insertion_position), where the position is an index *into
