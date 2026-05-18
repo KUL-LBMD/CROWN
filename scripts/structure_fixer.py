@@ -1,6 +1,6 @@
 from src.config import DATA_DIR
 from src.CROWN.ccd_cache import _load_ccd_cache
-from src.CROWN.utils import COMMON_ARTIFACTS, remove_artifacts_and_fix_quotes
+from src.CROWN.utils import remove_artifacts_and_fix_quotes
 
 # Main structural biology dependencies
 import gemmi
@@ -11,19 +11,14 @@ from openmm.app import PDBFile, Modeller
 import numpy as np
 import pandas as pd
 from scipy.spatial import KDTree
-from typing import Dict, List, Tuple, Set, Optional
+from typing import Dict, List, Tuple, Set
 from dataclasses import dataclass
 from collections import defaultdict
 from itertools import product
-import string
-import pickle
-import functools
 import traceback
 
 # File management
 import os
-import tempfile
-import subprocess
 from joblib import Parallel, delayed
 
 os.environ['OMP_NUM_THREADS'] = '1'
@@ -42,7 +37,16 @@ STANDARD_AA = {'ALA', 'ARG', 'ASH', 'ASN', 'ASP', 'CYM', 'CYS', 'CYX', 'GLH', 'G
                'ACE', 'NALA', 'NARG', 'NASN', 'NASP', 'NCYS', 'NCYX', 'NGLN', 'NGLU', 'NGLY', 'NHID', 'NHIE', 'NHIP', 'NILE', 'NLEU', 'NLYS', 'NMET', 
                'NPHE', 'NPRO', 'NSER', 'NTHR', 'NTRP', 'NTYR', 'NVAL', 'HSD', 'HSE', 'HSP'}
 
-STANDARD_BASES = {'A', 'U', 'G', 'C', 'DA', 'DT', 'DG', 'DC'}
+DNA_BASES = {'DA', 'DT', 'DG', 'DC'}
+RNA_BASES = {'A', 'U', 'G', 'C'}
+STANDARD_BASES = DNA_BASES | RNA_BASES
+
+# Sugar–phosphate backbone atoms shared by DNA and RNA (O2' present in RNA only).
+# OP1/OP2/OP3 are the canonical PDB names; O1P/O2P/O3P are kept for older files.
+RIBOPHOSPHATE_BACKBONE = {
+    'P', 'OP1', 'OP2', 'OP3', 'O1P', 'O2P', 'O3P',
+    "O5'", "C5'", "C4'", "O4'", "C3'", "O3'", "C2'", "C1'", "O2'",
+}
 
 VALID_BOND_ATOMS = {'C', 'N', 'O', 'S', 'P', 'B'}
 
@@ -811,17 +815,33 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                     heavy += 1
         chain_heavy_counts[chain.index] = heavy
 
+    nucleic_atoms_to_strip = []
     branched = []
-    for residue in fixer.topology.residues():
-        if chain_id_map.get(residue.index) == "Z":
-            continue
-        if residue.name in FIXED_RESIDUES:
-            continue
-        if chain_heavy_counts.get(residue.chain.index, 0) <= 100:
-            continue
-        atom_names = {atom.name for atom in residue.atoms()}
-        if not {'N', 'CA', 'C', 'O'}.issubset(atom_names):
-            branched.append(residue)
+    for chain in fixer.topology.chains():
+        if chain.id != 'Z' and chain_heavy_counts.get(chain.index, 0) > 100:
+            residues = list(chain.residues())
+            n_dna = sum(1 for r in residues if r.name in DNA_BASES)
+            n_rna = sum(1 for r in residues if r.name in RNA_BASES)
+            n_res = len(residues)
+
+            # Deal with DNA chains: terminal residues or mutated residues?
+            if n_dna > 2 or n_rna > 2:
+                replacement_base = 'DA' if n_dna >= n_rna else 'A'
+                for idx, residue in enumerate(residues):
+                    if not residue.name in FIXED_RESIDUES:
+                        if idx == 0 or idx == n_res - 1:
+                            branched.append(residue)
+                        else:
+                            residue.name = replacement_base
+                            for atom in residue.atoms():
+                                if atom.name not in RIBOPHOSPHATE_BACKBONE:
+                                    nucleic_atoms_to_strip.append(atom)
+
+            else:
+                for idx, residue in enumerate(residues):
+                    if not residue.name in FIXED_RESIDUES:
+                        if idx == 0 or idx == n_res - 1:
+                            branched.append(residue)
 
     for residue in branched:
         for atom in residue.atoms():
@@ -1016,6 +1036,28 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                 value[i] = 'ALA'
 
     fixer.addMissingAtoms()
+
+    # ── Strip stray OXT atoms from non-C-terminal residues ──
+    # OXT is only valid on the very last residue of a polypeptide chain;
+    # PDBFixer occasionally leaves them on internal residues after
+    # merge/extension steps. Drop them so downstream parsers don't
+    # interpret them as chain breaks.
+    oxt_to_remove = []
+    for chain in fixer.topology.chains():
+        residues = list(chain.residues())
+        if len(residues) <= 1:
+            continue
+        for residue in residues[:-1]:
+            for atom in residue.atoms():
+                if atom.name == 'OXT':
+                    oxt_to_remove.append(atom)
+ 
+    if oxt_to_remove:
+        modeller = Modeller(fixer.topology, fixer.positions)
+        modeller.delete(oxt_to_remove)
+        fixer.topology = modeller.topology
+        fixer.positions = modeller.positions
+
 
     with open(f'{DATA_DIR}/pdb/fixed/{basename}.pdb', "w") as fh:
         PDBFile.writeFile(fixer.topology, fixer.positions, fh)
