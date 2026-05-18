@@ -832,7 +832,7 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                     if not residue.name in FIXED_RESIDUES:
                         if idx == 0 or idx == n_res - 1:
                             branched.append(residue)
-                            branched_indices.append((chain.id, idx))
+                            branched_indices.append((chain.index, idx))
                         else:
                             residue.name = replacement_base
                             for atom in residue.atoms():
@@ -862,24 +862,6 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
         modeller.delete(branched)
         fixer.topology = modeller.topology
         fixer.positions = modeller.positions
-
-        # Remove branched residues also from SEQRES
-        for seq in fixer.sequences:
-            for chain_id, idx in branched_indices:
-                if seq.chainId == chain_id:
-                    if idx == 0:
-                        # Scan forward — unresolved residues may sit before it.
-                        for i, name in enumerate(seq.residues):
-                            if name == residue.name:
-                                del seq.residues[i]
-                                break
-
-                    else:
-                        # Scan backward for the C-terminal case.
-                        for i in range(len(seq.residues) - 1, -1, -1):
-                            if seq.residues[i] == residue.name:
-                                del seq.residues[i]
-                                break
 
     # Remove distal water residues
     waters_to_remove = []
@@ -985,6 +967,13 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     fixer.findMissingResidues()
     fixer.findMissingAtoms()
 
+    for key in fixer.missingResidues:
+        chain_length = chain_heavy_counts.get(key[0], 0)
+        if chain_length <= 100:
+            del fixer.missingResidues[key]
+        elif key in branched_indices:
+            del fixer.missingResidues[key]
+        
     # Cap terminal extensions at 5 residues. PDBFixer's missingResidues key is
     # (chain_index, insertion_position), where the position is an index *into
     # the existing residues* — 0 means insert before the first, len(chain) means
