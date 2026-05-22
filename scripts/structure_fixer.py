@@ -883,10 +883,25 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                     f'{basename} {residue.name} {residue.chain.id}{residue.id}'
                 )
                 return 'branched_in_shell'
+            
+    for atom in nucleic_atoms_to_strip:
+        pos = fixer.positions[atom.index]
+        atom_coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
+        if np.linalg.norm(ligand_coords - atom_coord, axis=1).min() < SHELL_RADIUS:
+            print(
+                f'Modified NA in shell'
+            )
+            return 'modified_in_shell'
 
     if branched:
         modeller = Modeller(fixer.topology, fixer.positions)
         modeller.delete(branched)
+        fixer.topology = modeller.topology
+        fixer.positions = modeller.positions
+
+    if nucleic_atoms_to_strip:
+        modeller = Modeller(fixer.topology, fixer.positions)
+        modeller.delete(nucleic_atoms_to_strip)
         fixer.topology = modeller.topology
         fixer.positions = modeller.positions
 
