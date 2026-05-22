@@ -259,7 +259,7 @@ def chain_passes_filter(chain: gemmi.Chain) -> tuple[bool, int, set[str]]:
 
             elements.add(elem)
 
-    passes = 0 < count < MAX_HEAVY_ATOMS
+    passes = 0 < count <= MAX_HEAVY_ATOMS
     return passes, count, elements
 
 # ---------------------------------------------------------------------------

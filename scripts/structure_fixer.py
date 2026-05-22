@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from collections import defaultdict
 from itertools import product
 import traceback
+import random
 
 # File management
 import os
@@ -798,6 +799,9 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
 
     fixer = PDBFixer(filename = f'{DATA_DIR}/pdb/raw/{basename}.pdb')
 
+    fixer.findMissingResidues()
+    fixer.findMissingAtoms()
+
     # ── Branched residues merged into polymer chains ──
     # After merge_bonded_chains, glycans (NAG/BMA/MAN/…) and other covalent
     # attachments end up on the protein chain. Detect them as non-FIXED
@@ -815,36 +819,59 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                     heavy += 1
         chain_heavy_counts[chain.index] = heavy
 
+    # Check whether any small chains have missing atoms
+    for chain_idx, _ in fixer.missingResidues:
+        if chain_heavy_counts.get(chain_idx, 0) <= 100:
+            print(f'{basename} - {chain_idx} has missing residues')
+            return 'missing_residues'
+
+    for residue in fixer.missingAtoms:
+        if chain_heavy_counts.get(residue.chain.index, 0) <= 100:
+            print(f'{basename} - {residue.chain.index} has missing atoms')
+            return 'missing_atoms'
+
     nucleic_atoms_to_strip = []
     branched = []
     branched_indices = []
     for chain in fixer.topology.chains():
+
         if chain.id != 'Z' and chain_heavy_counts.get(chain.index, 0) > 100:
             residues = list(chain.residues())
-            n_dna = sum(1 for r in residues if r.name in DNA_BASES)
-            n_rna = sum(1 for r in residues if r.name in RNA_BASES)
-            n_res = len(residues)
+
+            n_dna = n_rna = n_aa = 0
+            last_dna = last_rna = last_aa = 0
+
+            for i, r in enumerate(residues):
+                if r.name in DNA_BASES:
+                    n_dna += 1
+                    last_dna = i
+                elif r.name in RNA_BASES:
+                    n_rna += 1
+                    last_rna = i
+                elif r.name in STANDARD_AA:
+                    n_aa += 1
+                    last_aa = i
 
             # Deal with DNA chains: terminal residues or mutated residues?
             if n_dna > 2 or n_rna > 2:
                 replacement_base = 'DA' if n_dna >= n_rna else 'A'
                 for idx, residue in enumerate(residues):
                     if not residue.name in FIXED_RESIDUES:
-                        if idx == 0 or idx == n_res - 1:
+                        if idx == 0 or idx > max(last_dna, last_rna):
                             branched.append(residue)
-                            branched_indices.append((chain.index, idx))
+                            branched_indices.append((chain.index, idx, residue.name))
                         else:
                             residue.name = replacement_base
                             for atom in residue.atoms():
                                 if atom.name not in RIBOPHOSPHATE_BACKBONE:
                                     nucleic_atoms_to_strip.append(atom)
 
-            else:
+            elif n_aa > 5:
                 for idx, residue in enumerate(residues):
                     if not residue.name in FIXED_RESIDUES:
-                        if idx == 0 or idx == n_res - 1:
+                        if idx == 0 or idx > last_aa:
                             branched.append(residue)
-                            branched_indices.append((chain.id, idx))
+                            branched_indices.append((chain.id, idx, residue.name))
 
     for residue in branched:
         for atom in residue.atoms():
@@ -967,13 +994,23 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     fixer.findMissingResidues()
     fixer.findMissingAtoms()
 
-    for key in fixer.missingResidues:
-        chain_length = chain_heavy_counts.get(key[0], 0)
-        if chain_length <= 100:
+    keys_to_remove = []
+
+    for chain_idx, res_idx, res_name in branched_indices:
+        if res_idx == 0:
+            new_key = (chain_idx, res_idx)
+            keys_to_remove.append(new_key)
+        else:
+            for (chain_idx_key, res_idx_key), values in reversed(list(fixer.missingResidues.items())):
+                if chain_idx == chain_idx_key and res_name in values:
+                    new_key = (chain_idx_key, res_idx_key)
+                    keys_to_remove.append(new_key)
+                    break
+
+    for key in keys_to_remove:
+        if key in fixer.missingResidues:
             del fixer.missingResidues[key]
-        elif key in branched_indices:
-            del fixer.missingResidues[key]
-        
+
     # Cap terminal extensions at 5 residues. PDBFixer's missingResidues key is
     # (chain_index, insertion_position), where the position is an index *into
     # the existing residues* — 0 means insert before the first, len(chain) means
@@ -1086,7 +1123,7 @@ def check_structure(basename):
                 return False
             
             n_heavy = sum(1 for atom in residue if not atom.is_hydrogen())
-            if n_heavy > 90:
+            if n_heavy > 100:
                 print(f'{basename} - Big motherfucker {residue.name} in structure')
                 return False
             
@@ -1259,6 +1296,24 @@ def wrapper(num_cores = 1):
             for exc in exceptions:
                 f.write(f"  {exc}\n")
 
+def new_main(basename):
+
+    try:
+        structure = gemmi.read_structure(f'{DATA_DIR}/pdb/raw/{basename}.pdb')
+        ligand_coords = _get_chain_coords(structure, 'Z')
+        fixer_status = fix_missing_and_nonstandard_residues(basename, ligand_coords)
+
+        if fixer_status == 'ok':
+            checker_status = check_structure(basename)
+            if not checker_status:
+                os.remove(f'{DATA_DIR}/pdb/fixed/{basename}.pdb')
+
+    except Exception as e:
+        print(f'{basename} - {e}')
+
 if __name__ == '__main__':
-    wrapper(num_cores = 96)
-    #main('5yem')
+
+    basename_list = [x[:-4] for x in os.listdir(f'{DATA_DIR}/pdb/raw')]
+    random.shuffle(basename_list)
+    Parallel(n_jobs = 96, verbose = 10)(delayed(new_main)(basename) for basename in basename_list)
+    #main('8ax3')
