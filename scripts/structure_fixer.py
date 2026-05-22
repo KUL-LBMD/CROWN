@@ -34,8 +34,8 @@ os.environ["OPENMM_CPU_THREADS"] = "1"
 
 STANDARD_AA = {'ALA', 'ARG', 'ASH', 'ASN', 'ASP', 'CYM', 'CYS', 'CYX', 'GLH', 'GLN', 'GLU', 'GLY', 'HIS', 'HID', 'HIE', 'HIP', 'HYP', 'ILE', 'LEU', 'LYN', 
                'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL', 'CALA', 'CARG', 'CASN', 'CASP', 'CCYS', 'CCYX', 'CGLN', 'CGLU', 'CGLY', 
-               'CHID', 'CHIE', 'CHIP', 'CHYP', 'CILE', 'CLEU', 'CLYS', 'CMET', 'CPHE', 'CPRO', 'CSER', 'CTHR', 'CTRP', 'CTYR', 'CVAL', 'NHE', 'NME', 
-               'ACE', 'NALA', 'NARG', 'NASN', 'NASP', 'NCYS', 'NCYX', 'NGLN', 'NGLU', 'NGLY', 'NHID', 'NHIE', 'NHIP', 'NILE', 'NLEU', 'NLYS', 'NMET', 
+               'CHID', 'CHIE', 'CHIP', 'CHYP', 'CILE', 'CLEU', 'CLYS', 'CMET', 'CPHE', 'CPRO', 'CSER', 'CTHR', 'CTRP', 'CTYR', 'CVAL',
+               'NALA', 'NARG', 'NASN', 'NASP', 'NCYS', 'NCYX', 'NGLN', 'NGLU', 'NGLY', 'NHID', 'NHIE', 'NHIP', 'NILE', 'NLEU', 'NLYS', 'NMET', 
                'NPHE', 'NPRO', 'NSER', 'NTHR', 'NTRP', 'NTYR', 'NVAL', 'HSD', 'HSE', 'HSP'}
 
 DNA_BASES = {'DA', 'DT', 'DG', 'DC'}
@@ -45,7 +45,7 @@ STANDARD_BASES = DNA_BASES | RNA_BASES
 # Sugar–phosphate backbone atoms shared by DNA and RNA (O2' present in RNA only).
 # OP1/OP2/OP3 are the canonical PDB names; O1P/O2P/O3P are kept for older files.
 RIBOPHOSPHATE_BACKBONE = {
-    'P', 'OP1', 'OP2', 'OP3', 'O1P', 'O2P', 'O3P',
+    'P', 'OP1', 'OP2',
     "O5'", "C5'", "C4'", "O4'", "C3'", "O3'", "C2'", "C1'", "O2'",
 }
 
@@ -802,6 +802,9 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     fixer.findMissingResidues()
     fixer.findMissingAtoms()
 
+    print(fixer.missingResidues)
+    print(fixer.missingAtoms)
+
     # ── Branched residues merged into polymer chains ──
     # After merge_bonded_chains, glycans (NAG/BMA/MAN/…) and other covalent
     # attachments end up on the protein chain. Detect them as non-FIXED
@@ -856,19 +859,25 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
             if n_dna > 2 or n_rna > 2:
                 replacement_base = 'DA' if n_dna >= n_rna else 'A'
                 for idx, residue in enumerate(residues):
-                    if not residue.name in FIXED_RESIDUES:
+                    if not residue.name in STANDARD_BASES:
                         if idx == 0 or idx > max(last_dna, last_rna):
                             branched.append(residue)
                             branched_indices.append((chain.index, idx, residue.name))
                         else:
                             residue.name = replacement_base
                             for atom in residue.atoms():
+
+                                if atom.name == 'O1P':
+                                    atom.name = 'OP1'
+                                if atom.name == 'O2P':
+                                    atom.name = 'OP2'
+
                                 if atom.name not in RIBOPHOSPHATE_BACKBONE:
                                     nucleic_atoms_to_strip.append(atom)
 
             elif n_aa > 5:
                 for idx, residue in enumerate(residues):
-                    if not residue.name in FIXED_RESIDUES:
+                    if not residue.name in STANDARD_AA:
                         if idx == 0 or idx > last_aa:
                             branched.append(residue)
                             branched_indices.append((chain.id, idx, residue.name))
@@ -1009,6 +1018,8 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     fixer.findMissingResidues()
     fixer.findMissingAtoms()
 
+    print(f'2nd try: {fixer.missingResidues}')
+
     keys_to_remove = []
 
     for chain_idx, res_idx, res_name in branched_indices:
@@ -1025,6 +1036,8 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     for key in keys_to_remove:
         if key in fixer.missingResidues:
             del fixer.missingResidues[key]
+
+    print(f'3rd try: {fixer.missingResidues}')
 
     # Cap terminal extensions at 5 residues. PDBFixer's missingResidues key is
     # (chain_index, insertion_position), where the position is an index *into
@@ -1328,7 +1341,7 @@ def new_main(basename):
 
 if __name__ == '__main__':
 
-    basename_list = [x[:-4] for x in os.listdir(f'{DATA_DIR}/pdb/raw')]
-    random.shuffle(basename_list)
-    Parallel(n_jobs = 96, verbose = 10)(delayed(new_main)(basename) for basename in basename_list)
-    #main('8ax3')
+    #basename_list = [x[:-4] for x in os.listdir(f'{DATA_DIR}/pdb/raw')]
+    #random.shuffle(basename_list)
+    #Parallel(n_jobs = 96, verbose = 10)(delayed(new_main)(basename) for basename in basename_list)
+    main('9ckp')
