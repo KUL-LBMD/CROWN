@@ -20,6 +20,8 @@ import random
 
 # File management
 import os
+import shutil
+import traceback
 from joblib import Parallel, delayed
 
 os.environ['OMP_NUM_THREADS'] = '1'
@@ -845,7 +847,7 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     fixer.findMissingResidues()
     fixer.findMissingAtoms()
 
-    print(fixer.missingResidues)
+    original_missing = dict(fixer.missingResidues)
 
     # ── Branched residues merged into polymer chains ──
     # After merge_bonded_chains, glycans (NAG/BMA/MAN/…) and other covalent
@@ -1060,7 +1062,8 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     fixer.findMissingResidues()
     fixer.findMissingAtoms()
 
-    print(fixer.missingResidues)
+    if not fixer.missingResidues:
+        fixer.missingResidues = original_missing
 
     keys_to_remove = []
 
@@ -1079,7 +1082,7 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
         if key in fixer.missingResidues:
             del fixer.missingResidues[key]
 
-    print(f'After pruning: {fixer.missingResidues}')
+    print(fixer.missingResidues)
 
     # Cap terminal extensions at 5 residues. PDBFixer's missingResidues key is
     # (chain_index, insertion_position), where the position is an index *into
@@ -1105,8 +1108,8 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
         n_chain = chain_res_counts.get(chain_idx, 0)
         if ins_pos == 0:
             flanks = [chain_residues[chain_idx][ins_pos]]
-        elif ins_pos == n_chain:
-            flanks = [chain_residues[chain_idx][ins_pos - 1]]
+        elif ins_pos >= n_chain:
+            flanks = [chain_residues[chain_idx][n_chain - 1]]
         else:
             flanks = [chain_residues[chain_idx][ins_pos - 1], chain_residues[chain_idx][ins_pos]]
         for res in flanks:
@@ -1116,10 +1119,12 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                 pos = fixer.positions[atom.index]
                 coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
                 min_dist = np.linalg.norm(ligand_coords - coord, axis=1).min()
-                print(f'Minimum distance: {min_dist}')
+                print(f'Minimum distance: {res} - {atom} - {min_dist}')
                 if min_dist < SHELL_RADIUS:
+                    print(f'Atom coord: {coord}')
+                    print(f'Ligand: {ligand_coords}')
                     print(f'{basename} - Gap in shell')
-                    return 'gap_in_shell'
+                    #return 'gap_in_shell'
 
     # Check if any remaining residue with missing atoms is near the ligand
     n_pos = len(fixer.positions)
@@ -1381,10 +1386,13 @@ def new_main(basename):
                 os.remove(f'{DATA_DIR}/pdb/fixed/{basename}.pdb')
 
     except Exception as e:
+        shutil.copy(f'{DATA_DIR}/pdb/fixed_og/{basename}.pdb', f'{DATA_DIR}/pdb/fixed/{basename}.pdb')
         print(f'{basename} - {e}')
+        traceback.print_exception(e)
+
 
 if __name__ == '__main__':
 
-    basename_list = [x[:4] for x in os.listdir(f'{DATA_DIR}/mmCIF/raw')]
-    #Parallel(n_jobs = 96, verbose = 10)(delayed(main)(basename) for basename in basename_list)
-    main('2gm3')
+    basename_list = os.listdir(f'{DATA_DIR}/complexes')
+    #Parallel(n_jobs = 96, verbose = 10)(delayed(new_main)(basename) for basename in basename_list)
+    main('4rmz')
