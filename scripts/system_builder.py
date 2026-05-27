@@ -585,9 +585,8 @@ def strip_mol(mol: Chem.Mol) -> Chem.Mol:
                 writer.close()
 
                 # SDF
-                #subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-osdf', '-O', f'{tmp_dir}/temp.sdf'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
-                subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-osdf', '-O', f'temp.sdf'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
-                mol = Chem.SDMolSupplier(f'temp.sdf', removeHs=True)[0]
+                subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-osdf', '-O', f'{tmp_dir}/temp.sdf'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
+                mol = Chem.SDMolSupplier(f'{tmp_dir}/temp.sdf', removeHs=True)[0]
                 mol_noh = Chem.RemoveAllHs(mol)
                 return mol_noh
 
@@ -599,9 +598,9 @@ def strip_mol(mol: Chem.Mol) -> Chem.Mol:
                     subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-opdb', '-O', f'temp.pdb'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
                     mol = Chem.MolFromPDBFile(f'temp.pdb', removeHs = False, sanitize = False)
                     if mol is None:
-                        subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-oxyz', '-O', f'temp.xyz'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
-                        subprocess.run(['obabel', '-ixyz', f'temp.xyz', '-osdf', '-O', f'temp_new.sdf'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
-                        mol = Chem.SDMolSupplier(f'temp_new.sdf', removeHs=True)[0]
+                        subprocess.run(['obabel', '-isdf', f'{tmp_dir}/mol.sdf', '-oxyz', '-O', f'{tmp_dir}/temp.xyz'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
+                        subprocess.run(['obabel', '-ixyz', f'{tmp_dir}/temp.xyz', '-osdf', '-O', f'{tmp_dir}/temp_new.sdf'], stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL)
+                        mol = Chem.SDMolSupplier(f'{tmp_dir}/temp_new.sdf', removeHs=True)[0]
 
                     mol_noh = Chem.RemoveAllHs(mol)
                     return mol_noh
@@ -615,22 +614,27 @@ def protonate_ligand(mol: Chem.Mol) -> Chem.Mol:
     Protonate RDMol at given pH using dimorphite
     """
 
-    # Strip existing Hs, protonate at target pH
-    mol_noh = strip_mol(mol)
-    if mol_noh is None:
+    try:
+
+        # Strip existing Hs, protonate at target pH
+        mol_noh = strip_mol(mol)
+        if mol_noh is None:
+            return None
+
+        protonated = dl.run_with_mol_list([mol_noh], min_ph = PH, max_ph = PH,
+	    pka_precision=0.0, silent=True
+	)[0]
+
+        # Transfer 3D coordinates from original mol via substructure match
+        protonated = AllChem.AssignBondOrdersFromTemplate(protonated, mol_noh)
+
+        # Add explicit Hs with 3D coords
+        protonated_h = Chem.AddHs(protonated, addCoords=True)
+
+        return protonated_h
+
+    except Exception as e:
         return None
-
-    protonated = dl.run_with_mol_list([mol_noh], min_ph = PH, max_ph = PH,
-	        pka_precision=0.0, silent=True
-	    )[0]
-
-    # Transfer 3D coordinates from original mol via substructure match
-    protonated = AllChem.AssignBondOrdersFromTemplate(protonated, mol_noh)
-
-    # Add explicit Hs with 3D coords
-    protonated_h = Chem.AddHs(protonated, addCoords=True)
-
-    return protonated_h
 
 # ---------------------------------------------------------------------------
 # Per-PDB driver
@@ -672,9 +676,6 @@ def process_pdb(basename: str) -> None:
                 else:
                     shutil.rmtree(out_dir)
                     return
-
-                with Chem.SDWriter(f'{stem}.sdf') as writer:
-                    writer.write(mol)
 
                 mol_h = protonate_ligand(mol)
 

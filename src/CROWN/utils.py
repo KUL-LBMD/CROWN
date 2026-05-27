@@ -7,14 +7,15 @@ COMMON_ARTIFACTS = {'02U', '12P', '13P', '144', '15P', '16P', '1EM', '1PE', '1PG
                     'CXS', 'D10', 'D12', 'D1D', 'D22', 'DAO', 'DD9', 'DDQ', 'DDR', 'DEP', 'DET', 'DHB', 'DHJ', 'DIO', 'DKA', 'DMS', 'DMF', 'DMI', 'DMR', 'DOX', 
                     'DPG', 'DR6', 'DRE', 'DTD', 'DTT', 'DTU', 'DTV', 'E4N', 'EAP', 'EEE', 'EPE', 'ETE', 'ETF', 'ETX', 'F09', 'F4R', 'FJO', 'FTT', 'FW5', 
                     'GLV', 'GOL', 'GVT', 'GYF', 'HAE', 'HAI', 'HCA', 'HCS', 'HED', 'HEX', 'HEZ', 'HP6', 'HSG', 'HSH', 'HT3', 'HTG', 'HTH', 'HTO', 'HZA', 
-                    'I3C', 'ICT', 'IHP', 'IHS', 'IMD', 'IPH', 'JDJ', 'K12', 'KDO', 'L1P', 'L2C', 'L2P', 'L3P', 'L4P', 'LAC', 'LDA', 'LI1', 'LMR', 'LMT', 
+                    'I3C', 'ICT', 'IHP', 'IHS', 'IMD', 'IPH', 'JDJ', 'K12', 'L1P', 'L2C', 'L2P', 'L3P', 'L4P', 'LDA', 'LI1', 'LMR', 'LMT', 
                     'LMU', 'LUT', 'M2M', 'MAC', 'MAE', 'MB3', 'MBN', 'MBO', 'MC3', 'ME2', 'MEG', 'MES', 'MLA', 'MLI', 'MLT', 'MPD', 'MPO', 'MRD', 
                     'MYR', 'N8E', 'NBN', 'NET', 'NEX', 'NHE', 'O4B', 'OCT', 'OES', 'OGA', 'OP2', 'OTE', 'OXM', 'P03', 'P15', 'P1O', 'P22', 'P25', 'P2K', 
                     'P33', 'P3G', 'P4C', 'P4G', 'P4K', 'P6G', 'PA8', 'PC8', 'PD7', 'PE3', 'PE4', 'PE5', 'PE6', 'PE7', 'PE8', 'PEG', 'PEP', 'PEU', 'PEX', 
-                    'PG0', 'PG4', 'PG5', 'PG6', 'PG8', 'PGE', 'PGF', 'PGO', 'PGR', 'PHB', 'PHQ', 'PL9', 'PLC', 'PMS', 'PPI', 'PQ9', 'PQE', 'PTD', 'PUT', 
-                    'PVO', 'PX2', 'PX4', 'QGT', 'QJE', 'QLB', 'RG1', 'RWB', 'SAR', 'SGM', 'SIN', 'SOG', 'SP5', 'SPD', 'SPJ', 'SPM', 'SPZ', 'SQU', 
+                    'PG0', 'PG4', 'PG5', 'PG6', 'PG8', 'PGE', 'PGF', 'PGO', 'PGR', 'PHB', 'PHQ', 'PL9', 'PLC', 'PMS', 'PPI', 'PQ9', 'PQE', 'PTD', 
+                    'PVO', 'PX2', 'PX4', 'QGT', 'QJE', 'QLB', 'RG1', 'RWB', 'SAR', 'SGM', 'SIN', 'SOG', 'SP5', 'SPJ', 'SPZ', 'SQU', 
                     'SRT', 'TAM', 'TAR', 'TAU', 'TBU', 'TCE', 'TCN', 'TEA', 'TFA', 'THE', 'TLA', 'TMA', 'TOE', 'TRD', 'TRS', 'UMQ', 'UND', 'V1J', 
-                    'VX', 'XAT', 'XP4', 'XPA', 'XPE', 'Y69'}
+                    'VX', 'XAT', 'XP4', 'XPA', 'XPE', 'Y69', 'FLC', 'EDO', 'SO4', 'PO4', 'ACT', 'ACY', 'FMT', 'NO3', 'IPA', 'EOH', 'MOH', 'BME', 'TCE',
+                    'SUC', 'TRE', 'MRY'}
 
 def remove_artifacts_and_fix_quotes(structure: gemmi.Structure):
     """

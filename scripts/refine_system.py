@@ -46,7 +46,7 @@ ENERGY_REPORT_INTERVAL = 50
 TEMPERATURE = 300  # Kelvin
 TIMESTEP = 0.002  # picoseconds
 PH = 7.4
-NONBONDED_CUTOFF = 0.8 # Cutoff for interactions
+NONBONDED_CUTOFF = 1.0 # Cutoff for interactions
  
 FORCEFIELD_LIST = [
 	'amber19/protein.ff19SB.xml',

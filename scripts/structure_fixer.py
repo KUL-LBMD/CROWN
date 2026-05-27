@@ -32,11 +32,11 @@ os.environ["OPENMM_CPU_THREADS"] = "1"
 ### Define important variables ###
 #---------------------------------
 
-STANDARD_AA = {'ALA', 'ARG', 'ASH', 'ASN', 'ASP', 'CYM', 'CYS', 'CYX', 'GLH', 'GLN', 'GLU', 'GLY', 'HIS', 'HID', 'HIE', 'HIP', 'HYP', 'ILE', 'LEU', 'LYN', 
+STANDARD_AA = {'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'CYX', 'GLN', 'GLU', 'GLY', 'HIS', 'HID', 'HIE', 'HYP', 'ILE', 'LEU', 
                'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL', 'CALA', 'CARG', 'CASN', 'CASP', 'CCYS', 'CCYX', 'CGLN', 'CGLU', 'CGLY', 
-               'CHID', 'CHIE', 'CHIP', 'CHYP', 'CILE', 'CLEU', 'CLYS', 'CMET', 'CPHE', 'CPRO', 'CSER', 'CTHR', 'CTRP', 'CTYR', 'CVAL',
-               'NALA', 'NARG', 'NASN', 'NASP', 'NCYS', 'NCYX', 'NGLN', 'NGLU', 'NGLY', 'NHID', 'NHIE', 'NHIP', 'NILE', 'NLEU', 'NLYS', 'NMET', 
-               'NPHE', 'NPRO', 'NSER', 'NTHR', 'NTRP', 'NTYR', 'NVAL', 'HSD', 'HSE', 'HSP'}
+               'CHID', 'CHIE', 'CHYP', 'CILE', 'CLEU', 'CLYS', 'CMET', 'CPHE', 'CPRO', 'CSER', 'CTHR', 'CTRP', 'CTYR', 'CVAL',
+               'NALA', 'NARG', 'NASN', 'NASP', 'NCYS', 'NCYX', 'NGLN', 'NGLU', 'NGLY', 'NHID', 'NHIE', 'NILE', 'NLEU', 'NLYS', 'NMET', 
+               'NPHE', 'NPRO', 'NSER', 'NTHR', 'NTRP', 'NTYR', 'NVAL'}
 
 DNA_BASES = {'DA', 'DT', 'DG', 'DC'}
 RNA_BASES = {'A', 'U', 'G', 'C'}
@@ -537,30 +537,73 @@ class OverlapResolver:
                             if u in backbone_chains and v in backbone_chains]
 
             ordered_backbone = _topological_sort(backbone_chains, component_edges)
-            ordered_chains   = ordered_backbone + branch_chains
 
             new_chain_name = sorted(chain_set)[0]
 
-            all_residues = []
+            # Collect residues in two passes so we can preserve the deposited
+            # numbering for backbone chains. PDBFixer's findMissingResidues()
+            # relies on gaps in residue numbering to flag internal missing
+            # residues; sequential 1..N renumbering hides those gaps and
+            # silently leaves missingResidues empty.
+            #
+            # Backbone: keep each chain's original seqid. When more than one
+            # backbone chain is stitched together by a peptide / phosphodiester
+            # bond, shift the second (and onward) so it starts one past the
+            # previous chain's max, preserving the *internal* gap structure of
+            # each source chain.
+            # Branches: appended at the end with sequential numbers starting
+            # one past the last backbone residue.
+            backbone_residues = []
+            branch_residues = []
             chains_to_remove = []
-            for chain_id in ordered_chains:
+
+            running_max = None  # None until first backbone residue is placed
+            for chain_id in ordered_backbone:
+                if not _has_chain(model, chain_id):
+                    continue
+                chain = model[chain_id]
+                src_residues = list(chain)
+                if not src_residues:
+                    chains_to_remove.append(chain_id)
+                    continue
+
+                chain_min = min(r.seqid.num for r in src_residues)
+                offset = 0 if running_max is None else (running_max + 1) - chain_min
+
+                for residue in src_residues:
+                    cloned = residue.clone()
+                    if offset != 0:
+                        # In-place update preserves any insertion code on the seqid
+                        cloned.seqid.num = residue.seqid.num + offset
+                    backbone_residues.append(cloned)
+                    new_num = cloned.seqid.num
+                    if running_max is None or new_num > running_max:
+                        running_max = new_num
+                chains_to_remove.append(chain_id)
+
+            for chain_id in branch_chains:
                 if not _has_chain(model, chain_id):
                     continue
                 chain = model[chain_id]
                 for residue in chain:
-                    all_residues.append(residue.clone())
+                    branch_residues.append(residue.clone())
                 chains_to_remove.append(chain_id)
 
-            if not all_residues:
+            if not backbone_residues and not branch_residues:
                 continue  # was `return` in the original — that aborted later components
 
             for chain_id in chains_to_remove:
                 _remove_chain(model, chain_id)
 
             new_chain = gemmi.Chain(new_chain_name)
-            for new_index, residue in enumerate(all_residues, start=1):
-                residue.seqid = gemmi.SeqId(str(new_index))
+            for residue in backbone_residues:
                 new_chain.add_residue(residue)
+
+            next_num = (running_max + 1) if running_max is not None else 1
+            for residue in branch_residues:
+                residue.seqid = gemmi.SeqId(str(next_num))
+                new_chain.add_residue(residue)
+                next_num += 1
             model.add_chain(new_chain)
 
         return 'ok'
@@ -803,7 +846,6 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     fixer.findMissingAtoms()
 
     print(fixer.missingResidues)
-    print(fixer.missingAtoms)
 
     # ── Branched residues merged into polymer chains ──
     # After merge_bonded_chains, glycans (NAG/BMA/MAN/…) and other covalent
@@ -1018,7 +1060,7 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     fixer.findMissingResidues()
     fixer.findMissingAtoms()
 
-    print(f'2nd try: {fixer.missingResidues}')
+    print(fixer.missingResidues)
 
     keys_to_remove = []
 
@@ -1037,7 +1079,7 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
         if key in fixer.missingResidues:
             del fixer.missingResidues[key]
 
-    print(f'3rd try: {fixer.missingResidues}')
+    print(f'After pruning: {fixer.missingResidues}')
 
     # Cap terminal extensions at 5 residues. PDBFixer's missingResidues key is
     # (chain_index, insertion_position), where the position is an index *into
@@ -1073,7 +1115,9 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                     continue
                 pos = fixer.positions[atom.index]
                 coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
-                if np.linalg.norm(ligand_coords - coord, axis=1).min() < SHELL_RADIUS:
+                min_dist = np.linalg.norm(ligand_coords - coord, axis=1).min()
+                print(f'Minimum distance: {min_dist}')
+                if min_dist < SHELL_RADIUS:
                     print(f'{basename} - Gap in shell')
                     return 'gap_in_shell'
 
@@ -1341,7 +1385,6 @@ def new_main(basename):
 
 if __name__ == '__main__':
 
-    #basename_list = [x[:-4] for x in os.listdir(f'{DATA_DIR}/pdb/raw')]
-    #random.shuffle(basename_list)
-    #Parallel(n_jobs = 96, verbose = 10)(delayed(new_main)(basename) for basename in basename_list)
-    main('9ckp')
+    basename_list = [x[:4] for x in os.listdir(f'{DATA_DIR}/mmCIF/raw')]
+    #Parallel(n_jobs = 96, verbose = 10)(delayed(main)(basename) for basename in basename_list)
+    main('2gm3')
