@@ -924,7 +924,7 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                     if not residue.name in STANDARD_AA:
                         if idx == 0 or idx > last_aa:
                             branched.append(residue)
-                            branched_indices.append((chain.id, idx, residue.name))
+                            branched_indices.append((chain.index, idx, residue.name))
 
     for residue in branched:
         for atom in residue.atoms():
@@ -1065,6 +1065,13 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     if not fixer.missingResidues:
         fixer.missingResidues = original_missing
 
+    # Topology was rebuilt by replaceNonstandardResidues — refresh caches.
+    chain_residues = {
+        chain.index: list(chain.residues())
+        for chain in fixer.topology.chains()
+    }
+    chain_res_counts = {idx: len(res_list) for idx, res_list in chain_residues.items()}
+
     keys_to_remove = []
 
     for chain_idx, res_idx, res_name in branched_indices:
@@ -1081,8 +1088,6 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
     for key in keys_to_remove:
         if key in fixer.missingResidues:
             del fixer.missingResidues[key]
-
-    print(fixer.missingResidues)
 
     # Cap terminal extensions at 5 residues. PDBFixer's missingResidues key is
     # (chain_index, insertion_position), where the position is an index *into
@@ -1119,12 +1124,9 @@ def fix_missing_and_nonstandard_residues(basename: str, ligand_coords: np.ndarra
                 pos = fixer.positions[atom.index]
                 coord = np.array([pos.x * 10.0, pos.y * 10.0, pos.z * 10.0])
                 min_dist = np.linalg.norm(ligand_coords - coord, axis=1).min()
-                print(f'Minimum distance: {res} - {atom} - {min_dist}')
                 if min_dist < SHELL_RADIUS:
-                    print(f'Atom coord: {coord}')
-                    print(f'Ligand: {ligand_coords}')
-                    print(f'{basename} - Gap in shell')
-                    #return 'gap_in_shell'
+                    print(f'{basename}: gap in shell')
+                    return 'gap_in_shell'
 
     # Check if any remaining residue with missing atoms is near the ligand
     n_pos = len(fixer.positions)
@@ -1386,13 +1388,12 @@ def new_main(basename):
                 os.remove(f'{DATA_DIR}/pdb/fixed/{basename}.pdb')
 
     except Exception as e:
-        shutil.copy(f'{DATA_DIR}/pdb/fixed_og/{basename}.pdb', f'{DATA_DIR}/pdb/fixed/{basename}.pdb')
         print(f'{basename} - {e}')
         traceback.print_exception(e)
 
 
 if __name__ == '__main__':
 
-    basename_list = os.listdir(f'{DATA_DIR}/complexes')
+    basename_list = [x[:-4] for x in os.listdir(f'{DATA_DIR}/pdb/raw')]
     #Parallel(n_jobs = 96, verbose = 10)(delayed(new_main)(basename) for basename in basename_list)
-    main('4rmz')
+    main('8i2n')
