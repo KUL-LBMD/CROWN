@@ -354,7 +354,7 @@ def process_group(pdb_id: str, group):
 
 	for filename in group:
 
-		file_path = f'{DATA_DIR}/pdb/fixed/{filename}'
+		file_path = f'{DATA_DIR}/pdb/fixed_new/{filename}'
 		try:
 			prot_coords, lig_coords, prot_radii, lig_radii, lig_name = parse_pdb(file_path)
 		except Exception as exc:
@@ -537,7 +537,7 @@ def main():
 	"""
 
 	groups = defaultdict(list)
-	for filename in os.listdir(f'{DATA_DIR}/pdb/fixed'):
+	for filename in os.listdir(f'{DATA_DIR}/pdb/fixed_new'):
 		pdb_id = filename[:4]
 		groups[pdb_id].append(filename)
 

@@ -1395,5 +1395,9 @@ def new_main(basename):
 if __name__ == '__main__':
 
     basename_list = [x[:-4] for x in os.listdir(f'{DATA_DIR}/pdb/raw')]
-    #Parallel(n_jobs = 96, verbose = 10)(delayed(new_main)(basename) for basename in basename_list)
-    main('8i2n')
+    Parallel(n_jobs = 96, verbose = 10)(delayed(new_main)(basename) for basename in basename_list)
+    #main('8i2n')
+
+    #import cProfile, pstats
+    #cProfile.run("new_main('8i2n_D')", '/tmp/prof')
+    #pstats.Stats('/tmp/prof').sort_stats('cumulative').print_stats(40)

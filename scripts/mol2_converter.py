@@ -20,6 +20,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional
+import pandas as pd
 
 import gemmi
 from rdkit import Chem
@@ -144,7 +145,6 @@ def main(subdir):
 			print(f'{subdir} - {e}')
 
 if __name__ == '__main__':
-	systems_root = Path(DATA_DIR) / 'processed_systems'
-	subdirs = sorted(p.name for p in systems_root.iterdir() if p.is_dir())
-	#Parallel(n_jobs = 32, verbose = 10, backend = 'multiprocessing')(delayed(main)(subdir) for subdir in subdirs)
-	main('8vug_N')
+	df = pd.read_csv(f'{DATA_DIR}/metadata/pli_filter_pass.csv')
+	subdirs = df['filename'].tolist()
+	Parallel(n_jobs = 32, verbose = 10, backend = 'multiprocessing')(delayed(main)(subdir) for subdir in subdirs)

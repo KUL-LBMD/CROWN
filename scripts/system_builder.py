@@ -704,11 +704,14 @@ def main():
     print(len(subset))
     basenames = subset['filename'].tolist()
 
+    basenames = [x[:-4] for x in os.listdir(f'{DATA_DIR}/pdb/fixed')]
+    print(len(basenames))
+
     # ensure the cache file exists BEFORE spawning workers
     build_ccd_atoms_bonds_cache()
 
     #process_pdb('6aro_E')
-    Parallel(n_jobs = 64, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
+    Parallel(n_jobs = 16, verbose = 10)(delayed(process_pdb)(basename) for basename in basenames)
 
 if __name__ == '__main__':
     main()
