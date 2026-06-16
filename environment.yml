@@ -9,18 +9,15 @@ dependencies:
   - requests
   - urllib3
   - numpy
-  - numba
   - pandas
   - pyarrow
   - scikit-learn
-  - biopython
+  - gemmi
   - joblib
   - matplotlib
   - seaborn
   - scipy
   - tqdm
-  - einops
-  - networkx
   - python-dotenv
   - pip
   - rdkit
@@ -32,3 +29,4 @@ dependencies:
   - pip:
       - scikit-posthocs
       - biopandas
+      - freesasa
