@@ -1,15 +1,3 @@
-#!/usr/bin/env python3
-"""Batch-validate database structures with PoseBusters (before vs after minimization).
-
-Each database entry is a subdirectory containing:
-    receptor.pdb, receptor_minimized.pdb, ligand.sdf, ligand_minimized.sdf
-
-For every entry this runs PoseBusters in `dock` mode (ligand conditioned on its
-receptor, no ground-truth pose) on the raw and the minimized ligand, and collects
-everything into ONE tidy DataFrame written to a single CSV. Each entry yields two
-rows: state="raw" and state="minimized", with identical columns.
-"""
-
 from src.config import DATA_DIR
 
 import pandas as pd
@@ -32,7 +20,7 @@ def run(subdir):
 		try:
 			df = buster.bust(mol_pred = f'{DATA_DIR}/complexes/{subdir}/{lig_name}',
 					mol_cond = f'{DATA_DIR}/complexes/{subdir}/{rec_name}',
-					full_report = True
+					full_report = False
 			)
 
 			df = df.reset_index()                 # flatten PoseBusters' MultiIndex into columns
@@ -48,7 +36,7 @@ def run(subdir):
 
 if __name__ == "__main__":
 	subdir_list = os.listdir(f'{DATA_DIR}/complexes')
-	results = Parallel(n_jobs = 32, verbose = 10)(delayed(run)(subdir) for subdir in subdir_list)
+	results = Parallel(n_jobs = 32, verbose = 10, backend = 'multiprocessing')(delayed(run)(subdir) for subdir in subdir_list)
 	flat_results = [x for sublist in results if sublist for x in sublist]
 	results_df = pd.concat(flat_results, ignore_index = True)
 	check_cols = [c for c in results_df.columns if results_df[c].dtype == bool]

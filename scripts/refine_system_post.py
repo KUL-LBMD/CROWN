@@ -469,7 +469,7 @@ def _get_rebuilt_atom_indices(original_pdb_path, topology, positions, tol_nm=0.0
 
 def physical_energy(simulation):
 	state = simulation.context.getState(getEnergy=True, groups={0})
-	return state.getPotentialEnergy()
+	return state.getPotentialEnergy().value_in_unit(unit.kilojoules_per_mole)
 
 # ===================================================
 # Stage helpers
@@ -648,11 +648,6 @@ def refine_system(input_dir):
 	handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
 	logger.addHandler(handler)
  
-	if os.path.isfile(f'{DATA_DIR}/processed_systems/{input_dir}/system_minimized.pdb'):
-		logger.removeHandler(handler)
-		handler.close()
-		return
- 
 	delta_E = None
 
 	try:
@@ -720,7 +715,8 @@ def refine_system(input_dir):
 			E_initial = physical_energy(simulation) # Before minimization
 			simulation.minimizeEnergy(maxIterations=MINIMIZATION_STEPS)
 			E_final = physical_energy(simulation)
-			delta_E = E_final - E_initial
+			n_mobile = mobile_restraint.getNumParticles()
+			delta_E = (E_final - E_initial) / n_mobile if n_mobile else None
 		
 			# ------- Step 7: Save outputs -------
 			state = simulation.context.getState(getEnergy=True, getPositions=True)
@@ -736,7 +732,8 @@ def refine_system(input_dir):
 		logger.removeHandler(handler)
 		handler.close()
 
-		return delta_E
+	print(f'{input_dir} - Energy: {delta_E}')
+	return delta_E
 
 # ============================================================================
 # Driver
@@ -744,16 +741,13 @@ def refine_system(input_dir):
  
 def safe_refine_system(input_dir):
 	try:
-		delta_E = refine_system(input_dir)
+		return refine_system(input_dir)
 	except TimeoutError:
 		print(f'{input_dir} - timed out after 3600s, skipping')
-		delta_E = None
+		return None
 	except Exception as e:
 		print(f'{input_dir} - unhandled error: {e}')
-		delta_E = None
-
-	finally:
-		return delta_E
+		return None
 
 if __name__ == '__main__':
 	df = pd.read_parquet(f'{DATA_DIR}/metadata/CROWN_full_annotated.parquet')

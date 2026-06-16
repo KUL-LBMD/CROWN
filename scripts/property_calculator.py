@@ -66,7 +66,8 @@ def process_ligand(subdir):
 	return results
 
 if __name__ == '__main__':
-	subdir_list = os.listdir(DATA_DIR / 'complexes')
-	list_of_dicts = Parallel(n_jobs = 64, verbose = 10)(delayed(process_ligand)(subdir) for subdir in subdir_list)
+	#subdir_list = os.listdir(DATA_DIR / 'complexes')
+	subdir_list = ['3fiv_D']
+	list_of_dicts = Parallel(n_jobs = 1, verbose = 10)(delayed(process_ligand)(subdir) for subdir in subdir_list)
 	df = pd.DataFrame(list_of_dicts)
-	df.to_csv(DATA_DIR / 'metadata' / 'CROWN_ligand_data.csv', index = False, float_format = '%.4f')
+	df.to_csv(DATA_DIR / 'metadata' / 'CROWN_ligand_data_new.csv', index = False, float_format = '%.4f')

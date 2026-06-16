@@ -147,4 +147,5 @@ def main(subdir):
 if __name__ == '__main__':
 	df = pd.read_csv(f'{DATA_DIR}/metadata/pli_filter_pass.csv')
 	subdirs = df['filename'].tolist()
-	Parallel(n_jobs = 32, verbose = 10, backend = 'multiprocessing')(delayed(main)(subdir) for subdir in subdirs)
+	main('3fiv_D')
+	#Parallel(n_jobs = 32, verbose = 10, backend = 'multiprocessing')(delayed(main)(subdir) for subdir in subdirs)

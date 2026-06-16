@@ -864,6 +864,6 @@ def safe_refine_system(input_dir):
 		print(f'{input_dir} - unhandled error: {e}')
   
 if __name__ == '__main__':
-	subdir_list = os.listdir(f'{DATA_DIR}/systems')
-	Parallel(n_jobs=32, verbose=10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)
-	#safe_refine_system('6aro_E')
+	#subdir_list = os.listdir(f'{DATA_DIR}/systems')
+	#Parallel(n_jobs=32, verbose=10)(delayed(safe_refine_system)(input_dir) for input_dir in subdir_list)
+	safe_refine_system('3fiv_D')
