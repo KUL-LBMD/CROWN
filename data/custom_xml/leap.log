@@ -1,0 +1,2505 @@
+log started: Fri Feb 13 11:06:37 2026
+
+Log file: ./leap.log
+>> #
+>> # ----- leaprc for loading the ff19SB force field
+>> # ----- NOTE: this is designed for PDB format 3!
+>> #
+>> #	load atom type hybridizations
+>> #
+>> addAtomTypes {
+>> 	{ "H"   "H" "sp3" }
+>> 	{ "HO"  "H" "sp3" }
+>> 	{ "HS"  "H" "sp3" }
+>> 	{ "H1"  "H" "sp3" }
+>> 	{ "H2"  "H" "sp3" }
+>> 	{ "H3"  "H" "sp3" }
+>> 	{ "H4"  "H" "sp3" }
+>> 	{ "H5"  "H" "sp3" }
+>> 	{ "HW"  "H" "sp3" }
+>> 	{ "HC"  "H" "sp3" }
+>> 	{ "HA"  "H" "sp3" }
+>> 	{ "HP"  "H" "sp3" }
+>> 	{ "HZ"  "H" "sp3" }
+>> 	{ "OH"  "O" "sp3" }
+>> 	{ "OS"  "O" "sp3" }
+>> 	{ "O"   "O" "sp2" }
+>> 	{ "O2"  "O" "sp2" }
+>> 	{ "OP"  "O" "sp2" }
+>> 	{ "OW"  "O" "sp3" }
+>> 	{ "CT"  "C" "sp3" }
+>> 	{ "CX"  "C" "sp3" }
+>> 	{ "XC"  "C" "sp3" }
+>> 	{ "C8"  "C" "sp3" }
+>> 	{ "2C"  "C" "sp3" }
+>> 	{ "3C"  "C" "sp3" }
+>> 	{ "CH"  "C" "sp3" }
+>> 	{ "CS"  "C" "sp2" }
+>> 	{ "C"   "C" "sp2" }
+>> 	{ "CO"   "C" "sp2" }
+>> 	{ "C*"  "C" "sp2" }
+>> 	{ "CA"  "C" "sp2" }
+>> 	{ "CB"  "C" "sp2" }
+>> 	{ "CC"  "C" "sp2" }
+>> 	{ "CN"  "C" "sp2" }
+>> 	{ "CM"  "C" "sp2" }
+>> 	{ "CK"  "C" "sp2" }
+>> 	{ "CQ"  "C" "sp2" }
+>> 	{ "CD"  "C" "sp2" }
+>> 	{ "C5"  "C" "sp2" }
+>> 	{ "C4"  "C" "sp2" }
+>> 	{ "CP"  "C" "sp2" }
+>> 	{ "CI"  "C" "sp3" }
+>> 	{ "CJ"  "C" "sp2" }
+>> 	{ "CW"  "C" "sp2" }
+>> 	{ "CV"  "C" "sp2" }
+>> 	{ "CR"  "C" "sp2" }
+>> 	{ "CA"  "C" "sp2" }
+>> 	{ "CY"  "C" "sp2" }
+>> 	{ "C0"  "Ca" "sp3" }
+>> 	{ "MG"  "Mg" "sp3" }
+>> 	{ "N"   "N" "sp2" }
+>> 	{ "NA"  "N" "sp2" }
+>> 	{ "N2"  "N" "sp2" }
+>> 	{ "N*"  "N" "sp2" }
+>> 	{ "NP"  "N" "sp2" }
+>> 	{ "NQ"  "N" "sp2" }
+>> 	{ "NB"  "N" "sp2" }
+>> 	{ "NC"  "N" "sp2" }
+>> 	{ "NT"  "N" "sp3" }
+>> 	{ "NY"  "N" "sp2" }
+>> 	{ "N3"  "N" "sp3" }
+>> 	{ "S"   "S" "sp3" }
+>> 	{ "SH"  "S" "sp3" }
+>> 	{ "P"   "P" "sp3" }
+>> 	{ "LP"  ""  "sp3" }
+>> 	{ "EP"  ""  "sp3" }
+>> 	{ "F"   "F" "sp3" }
+>> 	{ "Cl"  "Cl" "sp3" }
+>> 	{ "Br"  "Br" "sp3" }
+>> 	{ "I"   "I"  "sp3" }
+>> }
+>> #
+>> #	Load the main parameter set.
+>> #
+>> set default cmap on
+>> parm19 = loadamberparams parm19.dat
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/parm19.dat
+Reading title:
+PARM99 + frcmod.ff99SB + frcmod.parmbsc0 + OL3 for RNA + ff19SB
+(UNKNOWN ATOM TYPE: Zn)
+(UNKNOWN ATOM TYPE: EP)
+>> frcmod19SB = loadamberparams frcmod.ff19SB
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/frcmod.ff19SB
+Reading force field modification type file (frcmod)
+Reading title:
+ff19SB AA-specific backbone CMAPs for protein 07/25/2019
+>> #
+>> #	Load main chain and terminating amino acid libraries
+>> #
+>> loadOff amino19.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/amino19.lib
+Loading: ALA
+Loading: ARG
+Loading: ASH
+Loading: ASN
+Loading: ASP
+Loading: CYM
+Loading: CYS
+Loading: CYX
+Loading: GLH
+Loading: GLN
+Loading: GLU
+Loading: GLY
+Loading: HID
+Loading: HIE
+Loading: HIP
+Loading: HYP
+Loading: ILE
+Loading: LEU
+Loading: LYN
+Loading: LYS
+Loading: MET
+Loading: PHE
+Loading: PRO
+Loading: SER
+Loading: THR
+Loading: TRP
+Loading: TYR
+Loading: VAL
+>> loadOff aminoct12.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/aminoct12.lib
+Loading: CALA
+Loading: CARG
+Loading: CASN
+Loading: CASP
+Loading: CCYS
+Loading: CCYX
+Loading: CGLN
+Loading: CGLU
+Loading: CGLY
+Loading: CHID
+Loading: CHIE
+Loading: CHIP
+Loading: CHYP
+Loading: CILE
+Loading: CLEU
+Loading: CLYS
+Loading: CMET
+Loading: CPHE
+Loading: CPRO
+Loading: CSER
+Loading: CTHR
+Loading: CTRP
+Loading: CTYR
+Loading: CVAL
+Loading: NHE
+Loading: NME
+>> loadOff aminont12.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/aminont12.lib
+Loading: ACE
+Loading: NALA
+Loading: NARG
+Loading: NASN
+Loading: NASP
+Loading: NCYS
+Loading: NCYX
+Loading: NGLN
+Loading: NGLU
+Loading: NGLY
+Loading: NHID
+Loading: NHIE
+Loading: NHIP
+Loading: NILE
+Loading: NLEU
+Loading: NLYS
+Loading: NMET
+Loading: NPHE
+Loading: NPRO
+Loading: NSER
+Loading: NTHR
+Loading: NTRP
+Loading: NTYR
+Loading: NVAL
+>> 
+>> #
+>> #	Define the PDB name map for the amino acids
+>> #
+>> addPdbResMap {
+>>   { 0 "HYP" "NHYP" } { 1 "HYP" "CHYP" }
+>>   { 0 "ALA" "NALA" } { 1 "ALA" "CALA" }
+>>   { 0 "ARG" "NARG" } { 1 "ARG" "CARG" }
+>>   { 0 "ASN" "NASN" } { 1 "ASN" "CASN" }
+>>   { 0 "ASP" "NASP" } { 1 "ASP" "CASP" }
+>>   { 0 "CYS" "NCYS" } { 1 "CYS" "CCYS" }
+>>   { 0 "CYX" "NCYX" } { 1 "CYX" "CCYX" }
+>>   { 0 "GLN" "NGLN" } { 1 "GLN" "CGLN" }
+>>   { 0 "GLU" "NGLU" } { 1 "GLU" "CGLU" }
+>>   { 0 "GLY" "NGLY" } { 1 "GLY" "CGLY" }
+>>   { 0 "HID" "NHID" } { 1 "HID" "CHID" }
+>>   { 0 "HIE" "NHIE" } { 1 "HIE" "CHIE" }
+>>   { 0 "HIP" "NHIP" } { 1 "HIP" "CHIP" }
+>>   { 0 "ILE" "NILE" } { 1 "ILE" "CILE" }
+>>   { 0 "LEU" "NLEU" } { 1 "LEU" "CLEU" }
+>>   { 0 "LYS" "NLYS" } { 1 "LYS" "CLYS" }
+>>   { 0 "MET" "NMET" } { 1 "MET" "CMET" }
+>>   { 0 "PHE" "NPHE" } { 1 "PHE" "CPHE" }
+>>   { 0 "PRO" "NPRO" } { 1 "PRO" "CPRO" }
+>>   { 0 "SER" "NSER" } { 1 "SER" "CSER" }
+>>   { 0 "THR" "NTHR" } { 1 "THR" "CTHR" }
+>>   { 0 "TRP" "NTRP" } { 1 "TRP" "CTRP" }
+>>   { 0 "TYR" "NTYR" } { 1 "TYR" "CTYR" }
+>>   { 0 "VAL" "NVAL" } { 1 "VAL" "CVAL" }
+>>   { 0 "HIS" "NHIS" } { 1 "HIS" "CHIS" }
+>> }
+>> 
+>> #
+>> # assume that most often proteins use HIE
+>> #
+>> NHIS = NHIE
+>> HIS = HIE
+>> CHIS = CHIE
+> 
+> 
+> # Load heme residue definition and parameters
+> loadAmberPrep heme.prepin
+Loading Prep file: ./heme.prepin
+(UNKNOWN ATOM TYPE: FE)
+(UNKNOWN ATOM TYPE: NO)
+(UNKNOWN ATOM TYPE: NO)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+(no charges read on atoms lines in     Heme residue  ALL ATOM, Yves names, Bayly-modified)
+Loaded UNIT: HEM
+> loadAmberParams heme.frcmod
+Loading parameters: ./heme.frcmod
+Reading force field modification type file (frcmod)
+Reading title:
+Force field modifcations for all-atom heme
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+Unknown keyword (N.B.: parameters around the iron atom are appropriate for a
+) in parameter file. Perhaps a format issue?
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+Unknown keyword (   six-coordinate (ligand bound) hemoglobin/myoglobin.
+) in parameter file. Perhaps a format issue?
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+Unknown keyword (Force field parameters were adapted from D.A. Giammona, Ph.D. thesis,
+) in parameter file. Perhaps a format issue?
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+Unknown keyword (   University of California, Davis (1984).
+) in parameter file. Perhaps a format issue?
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+Unknown keyword (                                  ---dac  12/90
+) in parameter file. Perhaps a format issue?
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+Unknown keyword (I modified & added to dac's original set - C.Bayly 10/95
+) in parameter file. Perhaps a format issue?
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+Unknown keyword (addition of NONBON parameters for NP and NO -- DAC,IA,RB 9/16
+) in parameter file. Perhaps a format issue?
+(UNKNOWN ATOM TYPE: FE)
+(UNKNOWN ATOM TYPE: LO)
+(UNKNOWN ATOM TYPE: LC)
+(UNKNOWN ATOM TYPE: NO)
+> 
+> # Create a unit containing just the HEM residue from the prep template
+> hem = sequence { HEM }
+Sequence: HEM
+> 
+> saveAmberParm hem heme.prmtop heme.inpcrd
+Checking Unit.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+The unperturbed charge of the unit (-2.000000) is not zero.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+Ignoring the warning from Unit Checking.
+
+Building topology.
+Building atom parameters.
+Building bond parameters.
+Building angle parameters.
+Building proper torsion parameters.
+Building improper torsion parameters.
+ ** Warning: No sp2 improper torsion term for  CC-HC-CD-CC
+        atoms are: C4D HGM CHA C1A
+ ** Warning: No sp2 improper torsion term for  CC-HC-CD-CC
+        atoms are: C4C HBM CHD C1D
+ ** Warning: No sp2 improper torsion term for  CB-HC-CY-CX
+        atoms are: C3C HV4 CAC CBC
+ ** Warning: No sp2 improper torsion term for  CC-HC-CD-CC
+        atoms are: C4B HAM CHC C1C
+ ** Warning: No sp2 improper torsion term for  CB-HC-CY-CX
+        atoms are: C3B HV2 CAB CBB
+ ** Warning: No sp2 improper torsion term for  CC-HC-CD-CC
+        atoms are: C4A HDM CHB C1B
+old PREP-specified impropers:
+ <HEM 1>:  NA   C1A  C4A  FE  
+ <HEM 1>:  NB   C1B  C4B  FE  
+ <HEM 1>:  NC   C1C  C4C  FE  
+ <HEM 1>:  ND   C1D  C4D  FE  
+ <HEM 1>:  C1A  C2A  NA   CHA 
+ <HEM 1>:  C1B  C2B  NB   CHB 
+ <HEM 1>:  C1C  C2C  NC   CHC 
+ <HEM 1>:  C1D  C2D  ND   CHD 
+ <HEM 1>:  C2A  C3A  C1A  CAA 
+ <HEM 1>:  C2B  C3B  C1B  CMB 
+ <HEM 1>:  C2C  C3C  C1C  CMC 
+ <HEM 1>:  C2D  C3D  C1D  CMD 
+ <HEM 1>:  C3A  C4A  C2A  CMA 
+ <HEM 1>:  C3B  C4B  C2B  CAB 
+ <HEM 1>:  C3C  C4C  C2C  CAC 
+ <HEM 1>:  C3D  C4D  C2D  CAD 
+ <HEM 1>:  C4A  NA   C3A  CHB 
+ <HEM 1>:  C4B  NB   C3B  CHC 
+ <HEM 1>:  C4C  NC   C3C  CHD 
+ <HEM 1>:  C4D  ND   C3D  CHA 
+ total 22 improper torsions applied
+ 20 improper torsions in old prep form
+Building H-Bond parameters.
+Incorporating Non-Bonded adjustments.
+Not Marking per-residue atom chain types.
+Marking per-residue atom chain types.
+ (no restraints)
+> quit
+	Quit
+
+Exiting LEaP: Errors = 0; Warnings = 8; Notes = 2.
+log started: Fri Feb 13 14:15:19 2026
+
+Log file: ./leap.log
+>> #
+>> # ----- leaprc for loading the ff19SB force field
+>> # ----- NOTE: this is designed for PDB format 3!
+>> #
+>> #	load atom type hybridizations
+>> #
+>> addAtomTypes {
+>> 	{ "H"   "H" "sp3" }
+>> 	{ "HO"  "H" "sp3" }
+>> 	{ "HS"  "H" "sp3" }
+>> 	{ "H1"  "H" "sp3" }
+>> 	{ "H2"  "H" "sp3" }
+>> 	{ "H3"  "H" "sp3" }
+>> 	{ "H4"  "H" "sp3" }
+>> 	{ "H5"  "H" "sp3" }
+>> 	{ "HW"  "H" "sp3" }
+>> 	{ "HC"  "H" "sp3" }
+>> 	{ "HA"  "H" "sp3" }
+>> 	{ "HP"  "H" "sp3" }
+>> 	{ "HZ"  "H" "sp3" }
+>> 	{ "OH"  "O" "sp3" }
+>> 	{ "OS"  "O" "sp3" }
+>> 	{ "O"   "O" "sp2" }
+>> 	{ "O2"  "O" "sp2" }
+>> 	{ "OP"  "O" "sp2" }
+>> 	{ "OW"  "O" "sp3" }
+>> 	{ "CT"  "C" "sp3" }
+>> 	{ "CX"  "C" "sp3" }
+>> 	{ "XC"  "C" "sp3" }
+>> 	{ "C8"  "C" "sp3" }
+>> 	{ "2C"  "C" "sp3" }
+>> 	{ "3C"  "C" "sp3" }
+>> 	{ "CH"  "C" "sp3" }
+>> 	{ "CS"  "C" "sp2" }
+>> 	{ "C"   "C" "sp2" }
+>> 	{ "CO"   "C" "sp2" }
+>> 	{ "C*"  "C" "sp2" }
+>> 	{ "CA"  "C" "sp2" }
+>> 	{ "CB"  "C" "sp2" }
+>> 	{ "CC"  "C" "sp2" }
+>> 	{ "CN"  "C" "sp2" }
+>> 	{ "CM"  "C" "sp2" }
+>> 	{ "CK"  "C" "sp2" }
+>> 	{ "CQ"  "C" "sp2" }
+>> 	{ "CD"  "C" "sp2" }
+>> 	{ "C5"  "C" "sp2" }
+>> 	{ "C4"  "C" "sp2" }
+>> 	{ "CP"  "C" "sp2" }
+>> 	{ "CI"  "C" "sp3" }
+>> 	{ "CJ"  "C" "sp2" }
+>> 	{ "CW"  "C" "sp2" }
+>> 	{ "CV"  "C" "sp2" }
+>> 	{ "CR"  "C" "sp2" }
+>> 	{ "CA"  "C" "sp2" }
+>> 	{ "CY"  "C" "sp2" }
+>> 	{ "C0"  "Ca" "sp3" }
+>> 	{ "MG"  "Mg" "sp3" }
+>> 	{ "N"   "N" "sp2" }
+>> 	{ "NA"  "N" "sp2" }
+>> 	{ "N2"  "N" "sp2" }
+>> 	{ "N*"  "N" "sp2" }
+>> 	{ "NP"  "N" "sp2" }
+>> 	{ "NQ"  "N" "sp2" }
+>> 	{ "NB"  "N" "sp2" }
+>> 	{ "NC"  "N" "sp2" }
+>> 	{ "NT"  "N" "sp3" }
+>> 	{ "NY"  "N" "sp2" }
+>> 	{ "N3"  "N" "sp3" }
+>> 	{ "S"   "S" "sp3" }
+>> 	{ "SH"  "S" "sp3" }
+>> 	{ "P"   "P" "sp3" }
+>> 	{ "LP"  ""  "sp3" }
+>> 	{ "EP"  ""  "sp3" }
+>> 	{ "F"   "F" "sp3" }
+>> 	{ "Cl"  "Cl" "sp3" }
+>> 	{ "Br"  "Br" "sp3" }
+>> 	{ "I"   "I"  "sp3" }
+>> }
+>> #
+>> #	Load the main parameter set.
+>> #
+>> set default cmap on
+>> parm19 = loadamberparams parm19.dat
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/parm19.dat
+Reading title:
+PARM99 + frcmod.ff99SB + frcmod.parmbsc0 + OL3 for RNA + ff19SB
+(UNKNOWN ATOM TYPE: Zn)
+(UNKNOWN ATOM TYPE: EP)
+>> frcmod19SB = loadamberparams frcmod.ff19SB
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/frcmod.ff19SB
+Reading force field modification type file (frcmod)
+Reading title:
+ff19SB AA-specific backbone CMAPs for protein 07/25/2019
+>> #
+>> #	Load main chain and terminating amino acid libraries
+>> #
+>> loadOff amino19.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/amino19.lib
+Loading: ALA
+Loading: ARG
+Loading: ASH
+Loading: ASN
+Loading: ASP
+Loading: CYM
+Loading: CYS
+Loading: CYX
+Loading: GLH
+Loading: GLN
+Loading: GLU
+Loading: GLY
+Loading: HID
+Loading: HIE
+Loading: HIP
+Loading: HYP
+Loading: ILE
+Loading: LEU
+Loading: LYN
+Loading: LYS
+Loading: MET
+Loading: PHE
+Loading: PRO
+Loading: SER
+Loading: THR
+Loading: TRP
+Loading: TYR
+Loading: VAL
+>> loadOff aminoct12.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/aminoct12.lib
+Loading: CALA
+Loading: CARG
+Loading: CASN
+Loading: CASP
+Loading: CCYS
+Loading: CCYX
+Loading: CGLN
+Loading: CGLU
+Loading: CGLY
+Loading: CHID
+Loading: CHIE
+Loading: CHIP
+Loading: CHYP
+Loading: CILE
+Loading: CLEU
+Loading: CLYS
+Loading: CMET
+Loading: CPHE
+Loading: CPRO
+Loading: CSER
+Loading: CTHR
+Loading: CTRP
+Loading: CTYR
+Loading: CVAL
+Loading: NHE
+Loading: NME
+>> loadOff aminont12.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/aminont12.lib
+Loading: ACE
+Loading: NALA
+Loading: NARG
+Loading: NASN
+Loading: NASP
+Loading: NCYS
+Loading: NCYX
+Loading: NGLN
+Loading: NGLU
+Loading: NGLY
+Loading: NHID
+Loading: NHIE
+Loading: NHIP
+Loading: NILE
+Loading: NLEU
+Loading: NLYS
+Loading: NMET
+Loading: NPHE
+Loading: NPRO
+Loading: NSER
+Loading: NTHR
+Loading: NTRP
+Loading: NTYR
+Loading: NVAL
+>> 
+>> #
+>> #	Define the PDB name map for the amino acids
+>> #
+>> addPdbResMap {
+>>   { 0 "HYP" "NHYP" } { 1 "HYP" "CHYP" }
+>>   { 0 "ALA" "NALA" } { 1 "ALA" "CALA" }
+>>   { 0 "ARG" "NARG" } { 1 "ARG" "CARG" }
+>>   { 0 "ASN" "NASN" } { 1 "ASN" "CASN" }
+>>   { 0 "ASP" "NASP" } { 1 "ASP" "CASP" }
+>>   { 0 "CYS" "NCYS" } { 1 "CYS" "CCYS" }
+>>   { 0 "CYX" "NCYX" } { 1 "CYX" "CCYX" }
+>>   { 0 "GLN" "NGLN" } { 1 "GLN" "CGLN" }
+>>   { 0 "GLU" "NGLU" } { 1 "GLU" "CGLU" }
+>>   { 0 "GLY" "NGLY" } { 1 "GLY" "CGLY" }
+>>   { 0 "HID" "NHID" } { 1 "HID" "CHID" }
+>>   { 0 "HIE" "NHIE" } { 1 "HIE" "CHIE" }
+>>   { 0 "HIP" "NHIP" } { 1 "HIP" "CHIP" }
+>>   { 0 "ILE" "NILE" } { 1 "ILE" "CILE" }
+>>   { 0 "LEU" "NLEU" } { 1 "LEU" "CLEU" }
+>>   { 0 "LYS" "NLYS" } { 1 "LYS" "CLYS" }
+>>   { 0 "MET" "NMET" } { 1 "MET" "CMET" }
+>>   { 0 "PHE" "NPHE" } { 1 "PHE" "CPHE" }
+>>   { 0 "PRO" "NPRO" } { 1 "PRO" "CPRO" }
+>>   { 0 "SER" "NSER" } { 1 "SER" "CSER" }
+>>   { 0 "THR" "NTHR" } { 1 "THR" "CTHR" }
+>>   { 0 "TRP" "NTRP" } { 1 "TRP" "CTRP" }
+>>   { 0 "TYR" "NTYR" } { 1 "TYR" "CTYR" }
+>>   { 0 "VAL" "NVAL" } { 1 "VAL" "CVAL" }
+>>   { 0 "HIS" "NHIS" } { 1 "HIS" "CHIS" }
+>> }
+>> 
+>> #
+>> # assume that most often proteins use HIE
+>> #
+>> NHIS = NHIE
+>> HIS = HIE
+>> CHIS = CHIE
+> 
+> 
+> # Load heme residue definition and parameters
+> loadAmberPrep sf4.prepin
+Loading Prep file: ./sf4.prepin
+(UNKNOWN ATOM TYPE: FD)
+(UNKNOWN ATOM TYPE: SD)
+(UNKNOWN ATOM TYPE: FO)
+(UNKNOWN ATOM TYPE: SU)
+(UNKNOWN ATOM TYPE: FU)
+(UNKNOWN ATOM TYPE: SD)
+(UNKNOWN ATOM TYPE: FP)
+(UNKNOWN ATOM TYPE: SU)
+Loaded UNIT: SF4
+> loadAmberParams sf4.frcmod
+Loading parameters: ./sf4.frcmod
+Reading force field modification type file (frcmod)
+Reading title:
+FF Fe4S4(Cys)4 All parameters from JCIM 2014,54 Carvahlo et al E nonbond parm from JACS 1992, 10024
+(UNKNOWN ATOM TYPE: SD)
+(UNKNOWN ATOM TYPE: SU)
+(UNKNOWN ATOM TYPE: SR)
+(UNKNOWN ATOM TYPE: FU)
+(UNKNOWN ATOM TYPE: FO)
+(UNKNOWN ATOM TYPE: FD)
+(UNKNOWN ATOM TYPE: FP)
+> 
+> # Create a unit containing just the HEM residue from the prep template
+> sf4 = sequence { SF4 }
+Sequence: SF4
+> 
+> saveAmberParm sf4 sf4.prmtop sf4.inpcrd
+Checking Unit.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+The unperturbed charge of the unit (-0.528400) is not integral.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+The unperturbed charge of the unit (-0.528400) is not zero.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+Ignoring the warnings from Unit Checking.
+
+Building topology.
+Building atom parameters.
+Building bond parameters.
+Building angle parameters.
+Building proper torsion parameters.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+1-4: angle 6 8 duplicates bond ('triangular' bond) or angle ('square' bond)
+
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+1-4: angle 5 7 duplicates bond ('triangular' bond) or angle ('square' bond)
+
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+1-4: angle 4 8 duplicates bond ('triangular' bond) or angle ('square' bond)
+
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+1-4: angle 4 6 duplicates bond ('triangular' bond) or angle ('square' bond)
+
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+1-4: angle 3 7 duplicates bond ('triangular' bond) or angle ('square' bond)
+
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+1-4: angle 3 5 duplicates bond ('triangular' bond) or angle ('square' bond)
+
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+1-4: angle 2 4 duplicates bond ('triangular' bond) or angle ('square' bond)
+
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+1-4: angle 2 6 duplicates bond ('triangular' bond) or angle ('square' bond)
+
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+1-4: angle 2 8 duplicates bond ('triangular' bond) or angle ('square' bond)
+
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+1-4: angle 1 3 duplicates bond ('triangular' bond) or angle ('square' bond)
+
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+1-4: angle 1 5 duplicates bond ('triangular' bond) or angle ('square' bond)
+
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+1-4: angle 1 7 duplicates bond ('triangular' bond) or angle ('square' bond)
+
+Building improper torsion parameters.
+old PREP-specified impropers:
+ <SF4 1>:  FE4  SN   SL   FE3 
+ <SF4 1>:  FE3  SM   SK   FE1 
+ total 0 improper torsions applied
+ 2 improper torsions in old prep form
+Building H-Bond parameters.
+Incorporating Non-Bonded adjustments.
+Not Marking per-residue atom chain types.
+Marking per-residue atom chain types.
+ (no restraints)
+> quit
+	Quit
+
+Exiting LEaP: Errors = 0; Warnings = 2; Notes = 13.
+log started: Fri Feb 13 14:29:46 2026
+
+Log file: ./leap.log
+>> #
+>> # ----- leaprc for loading the ff19SB force field
+>> # ----- NOTE: this is designed for PDB format 3!
+>> #
+>> #	load atom type hybridizations
+>> #
+>> addAtomTypes {
+>> 	{ "H"   "H" "sp3" }
+>> 	{ "HO"  "H" "sp3" }
+>> 	{ "HS"  "H" "sp3" }
+>> 	{ "H1"  "H" "sp3" }
+>> 	{ "H2"  "H" "sp3" }
+>> 	{ "H3"  "H" "sp3" }
+>> 	{ "H4"  "H" "sp3" }
+>> 	{ "H5"  "H" "sp3" }
+>> 	{ "HW"  "H" "sp3" }
+>> 	{ "HC"  "H" "sp3" }
+>> 	{ "HA"  "H" "sp3" }
+>> 	{ "HP"  "H" "sp3" }
+>> 	{ "HZ"  "H" "sp3" }
+>> 	{ "OH"  "O" "sp3" }
+>> 	{ "OS"  "O" "sp3" }
+>> 	{ "O"   "O" "sp2" }
+>> 	{ "O2"  "O" "sp2" }
+>> 	{ "OP"  "O" "sp2" }
+>> 	{ "OW"  "O" "sp3" }
+>> 	{ "CT"  "C" "sp3" }
+>> 	{ "CX"  "C" "sp3" }
+>> 	{ "XC"  "C" "sp3" }
+>> 	{ "C8"  "C" "sp3" }
+>> 	{ "2C"  "C" "sp3" }
+>> 	{ "3C"  "C" "sp3" }
+>> 	{ "CH"  "C" "sp3" }
+>> 	{ "CS"  "C" "sp2" }
+>> 	{ "C"   "C" "sp2" }
+>> 	{ "CO"   "C" "sp2" }
+>> 	{ "C*"  "C" "sp2" }
+>> 	{ "CA"  "C" "sp2" }
+>> 	{ "CB"  "C" "sp2" }
+>> 	{ "CC"  "C" "sp2" }
+>> 	{ "CN"  "C" "sp2" }
+>> 	{ "CM"  "C" "sp2" }
+>> 	{ "CK"  "C" "sp2" }
+>> 	{ "CQ"  "C" "sp2" }
+>> 	{ "CD"  "C" "sp2" }
+>> 	{ "C5"  "C" "sp2" }
+>> 	{ "C4"  "C" "sp2" }
+>> 	{ "CP"  "C" "sp2" }
+>> 	{ "CI"  "C" "sp3" }
+>> 	{ "CJ"  "C" "sp2" }
+>> 	{ "CW"  "C" "sp2" }
+>> 	{ "CV"  "C" "sp2" }
+>> 	{ "CR"  "C" "sp2" }
+>> 	{ "CA"  "C" "sp2" }
+>> 	{ "CY"  "C" "sp2" }
+>> 	{ "C0"  "Ca" "sp3" }
+>> 	{ "MG"  "Mg" "sp3" }
+>> 	{ "N"   "N" "sp2" }
+>> 	{ "NA"  "N" "sp2" }
+>> 	{ "N2"  "N" "sp2" }
+>> 	{ "N*"  "N" "sp2" }
+>> 	{ "NP"  "N" "sp2" }
+>> 	{ "NQ"  "N" "sp2" }
+>> 	{ "NB"  "N" "sp2" }
+>> 	{ "NC"  "N" "sp2" }
+>> 	{ "NT"  "N" "sp3" }
+>> 	{ "NY"  "N" "sp2" }
+>> 	{ "N3"  "N" "sp3" }
+>> 	{ "S"   "S" "sp3" }
+>> 	{ "SH"  "S" "sp3" }
+>> 	{ "P"   "P" "sp3" }
+>> 	{ "LP"  ""  "sp3" }
+>> 	{ "EP"  ""  "sp3" }
+>> 	{ "F"   "F" "sp3" }
+>> 	{ "Cl"  "Cl" "sp3" }
+>> 	{ "Br"  "Br" "sp3" }
+>> 	{ "I"   "I"  "sp3" }
+>> }
+>> #
+>> #	Load the main parameter set.
+>> #
+>> set default cmap on
+>> parm19 = loadamberparams parm19.dat
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/parm19.dat
+Reading title:
+PARM99 + frcmod.ff99SB + frcmod.parmbsc0 + OL3 for RNA + ff19SB
+(UNKNOWN ATOM TYPE: Zn)
+(UNKNOWN ATOM TYPE: EP)
+>> frcmod19SB = loadamberparams frcmod.ff19SB
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/frcmod.ff19SB
+Reading force field modification type file (frcmod)
+Reading title:
+ff19SB AA-specific backbone CMAPs for protein 07/25/2019
+>> #
+>> #	Load main chain and terminating amino acid libraries
+>> #
+>> loadOff amino19.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/amino19.lib
+Loading: ALA
+Loading: ARG
+Loading: ASH
+Loading: ASN
+Loading: ASP
+Loading: CYM
+Loading: CYS
+Loading: CYX
+Loading: GLH
+Loading: GLN
+Loading: GLU
+Loading: GLY
+Loading: HID
+Loading: HIE
+Loading: HIP
+Loading: HYP
+Loading: ILE
+Loading: LEU
+Loading: LYN
+Loading: LYS
+Loading: MET
+Loading: PHE
+Loading: PRO
+Loading: SER
+Loading: THR
+Loading: TRP
+Loading: TYR
+Loading: VAL
+>> loadOff aminoct12.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/aminoct12.lib
+Loading: CALA
+Loading: CARG
+Loading: CASN
+Loading: CASP
+Loading: CCYS
+Loading: CCYX
+Loading: CGLN
+Loading: CGLU
+Loading: CGLY
+Loading: CHID
+Loading: CHIE
+Loading: CHIP
+Loading: CHYP
+Loading: CILE
+Loading: CLEU
+Loading: CLYS
+Loading: CMET
+Loading: CPHE
+Loading: CPRO
+Loading: CSER
+Loading: CTHR
+Loading: CTRP
+Loading: CTYR
+Loading: CVAL
+Loading: NHE
+Loading: NME
+>> loadOff aminont12.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/aminont12.lib
+Loading: ACE
+Loading: NALA
+Loading: NARG
+Loading: NASN
+Loading: NASP
+Loading: NCYS
+Loading: NCYX
+Loading: NGLN
+Loading: NGLU
+Loading: NGLY
+Loading: NHID
+Loading: NHIE
+Loading: NHIP
+Loading: NILE
+Loading: NLEU
+Loading: NLYS
+Loading: NMET
+Loading: NPHE
+Loading: NPRO
+Loading: NSER
+Loading: NTHR
+Loading: NTRP
+Loading: NTYR
+Loading: NVAL
+>> 
+>> #
+>> #	Define the PDB name map for the amino acids
+>> #
+>> addPdbResMap {
+>>   { 0 "HYP" "NHYP" } { 1 "HYP" "CHYP" }
+>>   { 0 "ALA" "NALA" } { 1 "ALA" "CALA" }
+>>   { 0 "ARG" "NARG" } { 1 "ARG" "CARG" }
+>>   { 0 "ASN" "NASN" } { 1 "ASN" "CASN" }
+>>   { 0 "ASP" "NASP" } { 1 "ASP" "CASP" }
+>>   { 0 "CYS" "NCYS" } { 1 "CYS" "CCYS" }
+>>   { 0 "CYX" "NCYX" } { 1 "CYX" "CCYX" }
+>>   { 0 "GLN" "NGLN" } { 1 "GLN" "CGLN" }
+>>   { 0 "GLU" "NGLU" } { 1 "GLU" "CGLU" }
+>>   { 0 "GLY" "NGLY" } { 1 "GLY" "CGLY" }
+>>   { 0 "HID" "NHID" } { 1 "HID" "CHID" }
+>>   { 0 "HIE" "NHIE" } { 1 "HIE" "CHIE" }
+>>   { 0 "HIP" "NHIP" } { 1 "HIP" "CHIP" }
+>>   { 0 "ILE" "NILE" } { 1 "ILE" "CILE" }
+>>   { 0 "LEU" "NLEU" } { 1 "LEU" "CLEU" }
+>>   { 0 "LYS" "NLYS" } { 1 "LYS" "CLYS" }
+>>   { 0 "MET" "NMET" } { 1 "MET" "CMET" }
+>>   { 0 "PHE" "NPHE" } { 1 "PHE" "CPHE" }
+>>   { 0 "PRO" "NPRO" } { 1 "PRO" "CPRO" }
+>>   { 0 "SER" "NSER" } { 1 "SER" "CSER" }
+>>   { 0 "THR" "NTHR" } { 1 "THR" "CTHR" }
+>>   { 0 "TRP" "NTRP" } { 1 "TRP" "CTRP" }
+>>   { 0 "TYR" "NTYR" } { 1 "TYR" "CTYR" }
+>>   { 0 "VAL" "NVAL" } { 1 "VAL" "CVAL" }
+>>   { 0 "HIS" "NHIS" } { 1 "HIS" "CHIS" }
+>> }
+>> 
+>> #
+>> # assume that most often proteins use HIE
+>> #
+>> NHIS = NHIE
+>> HIS = HIE
+>> CHIS = CHIE
+> 
+> 
+> # Load heme residue definition and parameters
+> loadAmberPrep mgd.prepin
+Loading Prep file: ./mgd.prepin
+(UNKNOWN ATOM TYPE: hn)
+(UNKNOWN ATOM TYPE: nh)
+(UNKNOWN ATOM TYPE: hn)
+(UNKNOWN ATOM TYPE: hn)
+(UNKNOWN ATOM TYPE: nd)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+residue MGD cofactor (proximal to FeS cluster) in tetrahydropterin form atom S12 type S13: type must be 1 or 2 characters
+> loadAmberParams mgd.frcmod
+Loading parameters: ./mgd.frcmod
+Reading force field modification type file (frcmod)
+Reading title:
+# FF for Mo(IV) site in NAP active site, and modifications to Amber94 ff for polyphosphates
+(UNKNOWN ATOM TYPE: Mo)
+(UNKNOWN ATOM TYPE: S11)
+(UNKNOWN ATOM TYPE: S12)
+(UNKNOWN ATOM TYPE: S13)
+(UNKNOWN ATOM TYPE: S14)
+(UNKNOWN ATOM TYPE: OV)
+(UNKNOWN ATOM TYPE: SM)
+(UNKNOWN ATOM TYPE: HV)
+(UNKNOWN ATOM TYPE: O3)
+> 
+> # Create a unit containing just the HEM residue from the prep template
+> mgd = sequence { MGD }
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Fatal Error!
+sequence: Illegal UNIT at position #1.
+
+Exiting LEaP: Errors = 2; Warnings = 0; Notes = 0.
+log started: Fri Feb 13 14:30:37 2026
+
+Log file: ./leap.log
+>> #
+>> # ----- leaprc for loading the ff19SB force field
+>> # ----- NOTE: this is designed for PDB format 3!
+>> #
+>> #	load atom type hybridizations
+>> #
+>> addAtomTypes {
+>> 	{ "H"   "H" "sp3" }
+>> 	{ "HO"  "H" "sp3" }
+>> 	{ "HS"  "H" "sp3" }
+>> 	{ "H1"  "H" "sp3" }
+>> 	{ "H2"  "H" "sp3" }
+>> 	{ "H3"  "H" "sp3" }
+>> 	{ "H4"  "H" "sp3" }
+>> 	{ "H5"  "H" "sp3" }
+>> 	{ "HW"  "H" "sp3" }
+>> 	{ "HC"  "H" "sp3" }
+>> 	{ "HA"  "H" "sp3" }
+>> 	{ "HP"  "H" "sp3" }
+>> 	{ "HZ"  "H" "sp3" }
+>> 	{ "OH"  "O" "sp3" }
+>> 	{ "OS"  "O" "sp3" }
+>> 	{ "O"   "O" "sp2" }
+>> 	{ "O2"  "O" "sp2" }
+>> 	{ "OP"  "O" "sp2" }
+>> 	{ "OW"  "O" "sp3" }
+>> 	{ "CT"  "C" "sp3" }
+>> 	{ "CX"  "C" "sp3" }
+>> 	{ "XC"  "C" "sp3" }
+>> 	{ "C8"  "C" "sp3" }
+>> 	{ "2C"  "C" "sp3" }
+>> 	{ "3C"  "C" "sp3" }
+>> 	{ "CH"  "C" "sp3" }
+>> 	{ "CS"  "C" "sp2" }
+>> 	{ "C"   "C" "sp2" }
+>> 	{ "CO"   "C" "sp2" }
+>> 	{ "C*"  "C" "sp2" }
+>> 	{ "CA"  "C" "sp2" }
+>> 	{ "CB"  "C" "sp2" }
+>> 	{ "CC"  "C" "sp2" }
+>> 	{ "CN"  "C" "sp2" }
+>> 	{ "CM"  "C" "sp2" }
+>> 	{ "CK"  "C" "sp2" }
+>> 	{ "CQ"  "C" "sp2" }
+>> 	{ "CD"  "C" "sp2" }
+>> 	{ "C5"  "C" "sp2" }
+>> 	{ "C4"  "C" "sp2" }
+>> 	{ "CP"  "C" "sp2" }
+>> 	{ "CI"  "C" "sp3" }
+>> 	{ "CJ"  "C" "sp2" }
+>> 	{ "CW"  "C" "sp2" }
+>> 	{ "CV"  "C" "sp2" }
+>> 	{ "CR"  "C" "sp2" }
+>> 	{ "CA"  "C" "sp2" }
+>> 	{ "CY"  "C" "sp2" }
+>> 	{ "C0"  "Ca" "sp3" }
+>> 	{ "MG"  "Mg" "sp3" }
+>> 	{ "N"   "N" "sp2" }
+>> 	{ "NA"  "N" "sp2" }
+>> 	{ "N2"  "N" "sp2" }
+>> 	{ "N*"  "N" "sp2" }
+>> 	{ "NP"  "N" "sp2" }
+>> 	{ "NQ"  "N" "sp2" }
+>> 	{ "NB"  "N" "sp2" }
+>> 	{ "NC"  "N" "sp2" }
+>> 	{ "NT"  "N" "sp3" }
+>> 	{ "NY"  "N" "sp2" }
+>> 	{ "N3"  "N" "sp3" }
+>> 	{ "S"   "S" "sp3" }
+>> 	{ "SH"  "S" "sp3" }
+>> 	{ "P"   "P" "sp3" }
+>> 	{ "LP"  ""  "sp3" }
+>> 	{ "EP"  ""  "sp3" }
+>> 	{ "F"   "F" "sp3" }
+>> 	{ "Cl"  "Cl" "sp3" }
+>> 	{ "Br"  "Br" "sp3" }
+>> 	{ "I"   "I"  "sp3" }
+>> }
+>> #
+>> #	Load the main parameter set.
+>> #
+>> set default cmap on
+>> parm19 = loadamberparams parm19.dat
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/parm19.dat
+Reading title:
+PARM99 + frcmod.ff99SB + frcmod.parmbsc0 + OL3 for RNA + ff19SB
+(UNKNOWN ATOM TYPE: Zn)
+(UNKNOWN ATOM TYPE: EP)
+>> frcmod19SB = loadamberparams frcmod.ff19SB
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/frcmod.ff19SB
+Reading force field modification type file (frcmod)
+Reading title:
+ff19SB AA-specific backbone CMAPs for protein 07/25/2019
+>> #
+>> #	Load main chain and terminating amino acid libraries
+>> #
+>> loadOff amino19.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/amino19.lib
+Loading: ALA
+Loading: ARG
+Loading: ASH
+Loading: ASN
+Loading: ASP
+Loading: CYM
+Loading: CYS
+Loading: CYX
+Loading: GLH
+Loading: GLN
+Loading: GLU
+Loading: GLY
+Loading: HID
+Loading: HIE
+Loading: HIP
+Loading: HYP
+Loading: ILE
+Loading: LEU
+Loading: LYN
+Loading: LYS
+Loading: MET
+Loading: PHE
+Loading: PRO
+Loading: SER
+Loading: THR
+Loading: TRP
+Loading: TYR
+Loading: VAL
+>> loadOff aminoct12.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/aminoct12.lib
+Loading: CALA
+Loading: CARG
+Loading: CASN
+Loading: CASP
+Loading: CCYS
+Loading: CCYX
+Loading: CGLN
+Loading: CGLU
+Loading: CGLY
+Loading: CHID
+Loading: CHIE
+Loading: CHIP
+Loading: CHYP
+Loading: CILE
+Loading: CLEU
+Loading: CLYS
+Loading: CMET
+Loading: CPHE
+Loading: CPRO
+Loading: CSER
+Loading: CTHR
+Loading: CTRP
+Loading: CTYR
+Loading: CVAL
+Loading: NHE
+Loading: NME
+>> loadOff aminont12.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/aminont12.lib
+Loading: ACE
+Loading: NALA
+Loading: NARG
+Loading: NASN
+Loading: NASP
+Loading: NCYS
+Loading: NCYX
+Loading: NGLN
+Loading: NGLU
+Loading: NGLY
+Loading: NHID
+Loading: NHIE
+Loading: NHIP
+Loading: NILE
+Loading: NLEU
+Loading: NLYS
+Loading: NMET
+Loading: NPHE
+Loading: NPRO
+Loading: NSER
+Loading: NTHR
+Loading: NTRP
+Loading: NTYR
+Loading: NVAL
+>> 
+>> #
+>> #	Define the PDB name map for the amino acids
+>> #
+>> addPdbResMap {
+>>   { 0 "HYP" "NHYP" } { 1 "HYP" "CHYP" }
+>>   { 0 "ALA" "NALA" } { 1 "ALA" "CALA" }
+>>   { 0 "ARG" "NARG" } { 1 "ARG" "CARG" }
+>>   { 0 "ASN" "NASN" } { 1 "ASN" "CASN" }
+>>   { 0 "ASP" "NASP" } { 1 "ASP" "CASP" }
+>>   { 0 "CYS" "NCYS" } { 1 "CYS" "CCYS" }
+>>   { 0 "CYX" "NCYX" } { 1 "CYX" "CCYX" }
+>>   { 0 "GLN" "NGLN" } { 1 "GLN" "CGLN" }
+>>   { 0 "GLU" "NGLU" } { 1 "GLU" "CGLU" }
+>>   { 0 "GLY" "NGLY" } { 1 "GLY" "CGLY" }
+>>   { 0 "HID" "NHID" } { 1 "HID" "CHID" }
+>>   { 0 "HIE" "NHIE" } { 1 "HIE" "CHIE" }
+>>   { 0 "HIP" "NHIP" } { 1 "HIP" "CHIP" }
+>>   { 0 "ILE" "NILE" } { 1 "ILE" "CILE" }
+>>   { 0 "LEU" "NLEU" } { 1 "LEU" "CLEU" }
+>>   { 0 "LYS" "NLYS" } { 1 "LYS" "CLYS" }
+>>   { 0 "MET" "NMET" } { 1 "MET" "CMET" }
+>>   { 0 "PHE" "NPHE" } { 1 "PHE" "CPHE" }
+>>   { 0 "PRO" "NPRO" } { 1 "PRO" "CPRO" }
+>>   { 0 "SER" "NSER" } { 1 "SER" "CSER" }
+>>   { 0 "THR" "NTHR" } { 1 "THR" "CTHR" }
+>>   { 0 "TRP" "NTRP" } { 1 "TRP" "CTRP" }
+>>   { 0 "TYR" "NTYR" } { 1 "TYR" "CTYR" }
+>>   { 0 "VAL" "NVAL" } { 1 "VAL" "CVAL" }
+>>   { 0 "HIS" "NHIS" } { 1 "HIS" "CHIS" }
+>> }
+>> 
+>> #
+>> # assume that most often proteins use HIE
+>> #
+>> NHIS = NHIE
+>> HIS = HIE
+>> CHIS = CHIE
+> 
+> 
+> # Load heme residue definition and parameters
+> loadAmberPrep mgd.prepin
+Loading Prep file: ./mgd.prepin
+(UNKNOWN ATOM TYPE: hn)
+(UNKNOWN ATOM TYPE: nh)
+(UNKNOWN ATOM TYPE: hn)
+(UNKNOWN ATOM TYPE: hn)
+(UNKNOWN ATOM TYPE: nd)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+residue MGD cofactor (proximal to FeS cluster) in tetrahydropterin form atom S12 type S13: type must be 1 or 2 characters
+> loadAmberParams mgd.frcmod
+Loading parameters: ./mgd.frcmod
+Reading force field modification type file (frcmod)
+Reading title:
+# FF for Mo(IV) site in NAP active site, and modifications to Amber94 ff for polyphosphates
+(UNKNOWN ATOM TYPE: Mo)
+(UNKNOWN ATOM TYPE: S11)
+(UNKNOWN ATOM TYPE: S12)
+(UNKNOWN ATOM TYPE: S13)
+(UNKNOWN ATOM TYPE: S14)
+(UNKNOWN ATOM TYPE: OV)
+(UNKNOWN ATOM TYPE: SM)
+(UNKNOWN ATOM TYPE: HV)
+(UNKNOWN ATOM TYPE: O3)
+> 
+> # Create a unit containing just the HEM residue from the prep template
+> mgd = sequence { MGD }
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Fatal Error!
+sequence: Illegal UNIT at position #1.
+
+Exiting LEaP: Errors = 2; Warnings = 0; Notes = 0.
+log started: Fri Feb 13 14:37:37 2026
+
+Log file: ./leap.log
+>> #
+>> # ----- leaprc for loading the ff19SB force field
+>> # ----- NOTE: this is designed for PDB format 3!
+>> #
+>> #	load atom type hybridizations
+>> #
+>> addAtomTypes {
+>> 	{ "H"   "H" "sp3" }
+>> 	{ "HO"  "H" "sp3" }
+>> 	{ "HS"  "H" "sp3" }
+>> 	{ "H1"  "H" "sp3" }
+>> 	{ "H2"  "H" "sp3" }
+>> 	{ "H3"  "H" "sp3" }
+>> 	{ "H4"  "H" "sp3" }
+>> 	{ "H5"  "H" "sp3" }
+>> 	{ "HW"  "H" "sp3" }
+>> 	{ "HC"  "H" "sp3" }
+>> 	{ "HA"  "H" "sp3" }
+>> 	{ "HP"  "H" "sp3" }
+>> 	{ "HZ"  "H" "sp3" }
+>> 	{ "OH"  "O" "sp3" }
+>> 	{ "OS"  "O" "sp3" }
+>> 	{ "O"   "O" "sp2" }
+>> 	{ "O2"  "O" "sp2" }
+>> 	{ "OP"  "O" "sp2" }
+>> 	{ "OW"  "O" "sp3" }
+>> 	{ "CT"  "C" "sp3" }
+>> 	{ "CX"  "C" "sp3" }
+>> 	{ "XC"  "C" "sp3" }
+>> 	{ "C8"  "C" "sp3" }
+>> 	{ "2C"  "C" "sp3" }
+>> 	{ "3C"  "C" "sp3" }
+>> 	{ "CH"  "C" "sp3" }
+>> 	{ "CS"  "C" "sp2" }
+>> 	{ "C"   "C" "sp2" }
+>> 	{ "CO"   "C" "sp2" }
+>> 	{ "C*"  "C" "sp2" }
+>> 	{ "CA"  "C" "sp2" }
+>> 	{ "CB"  "C" "sp2" }
+>> 	{ "CC"  "C" "sp2" }
+>> 	{ "CN"  "C" "sp2" }
+>> 	{ "CM"  "C" "sp2" }
+>> 	{ "CK"  "C" "sp2" }
+>> 	{ "CQ"  "C" "sp2" }
+>> 	{ "CD"  "C" "sp2" }
+>> 	{ "C5"  "C" "sp2" }
+>> 	{ "C4"  "C" "sp2" }
+>> 	{ "CP"  "C" "sp2" }
+>> 	{ "CI"  "C" "sp3" }
+>> 	{ "CJ"  "C" "sp2" }
+>> 	{ "CW"  "C" "sp2" }
+>> 	{ "CV"  "C" "sp2" }
+>> 	{ "CR"  "C" "sp2" }
+>> 	{ "CA"  "C" "sp2" }
+>> 	{ "CY"  "C" "sp2" }
+>> 	{ "C0"  "Ca" "sp3" }
+>> 	{ "MG"  "Mg" "sp3" }
+>> 	{ "N"   "N" "sp2" }
+>> 	{ "NA"  "N" "sp2" }
+>> 	{ "N2"  "N" "sp2" }
+>> 	{ "N*"  "N" "sp2" }
+>> 	{ "NP"  "N" "sp2" }
+>> 	{ "NQ"  "N" "sp2" }
+>> 	{ "NB"  "N" "sp2" }
+>> 	{ "NC"  "N" "sp2" }
+>> 	{ "NT"  "N" "sp3" }
+>> 	{ "NY"  "N" "sp2" }
+>> 	{ "N3"  "N" "sp3" }
+>> 	{ "S"   "S" "sp3" }
+>> 	{ "SH"  "S" "sp3" }
+>> 	{ "P"   "P" "sp3" }
+>> 	{ "LP"  ""  "sp3" }
+>> 	{ "EP"  ""  "sp3" }
+>> 	{ "F"   "F" "sp3" }
+>> 	{ "Cl"  "Cl" "sp3" }
+>> 	{ "Br"  "Br" "sp3" }
+>> 	{ "I"   "I"  "sp3" }
+>> }
+>> #
+>> #	Load the main parameter set.
+>> #
+>> set default cmap on
+>> parm19 = loadamberparams parm19.dat
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/parm19.dat
+Reading title:
+PARM99 + frcmod.ff99SB + frcmod.parmbsc0 + OL3 for RNA + ff19SB
+(UNKNOWN ATOM TYPE: Zn)
+(UNKNOWN ATOM TYPE: EP)
+>> frcmod19SB = loadamberparams frcmod.ff19SB
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/frcmod.ff19SB
+Reading force field modification type file (frcmod)
+Reading title:
+ff19SB AA-specific backbone CMAPs for protein 07/25/2019
+>> #
+>> #	Load main chain and terminating amino acid libraries
+>> #
+>> loadOff amino19.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/amino19.lib
+Loading: ALA
+Loading: ARG
+Loading: ASH
+Loading: ASN
+Loading: ASP
+Loading: CYM
+Loading: CYS
+Loading: CYX
+Loading: GLH
+Loading: GLN
+Loading: GLU
+Loading: GLY
+Loading: HID
+Loading: HIE
+Loading: HIP
+Loading: HYP
+Loading: ILE
+Loading: LEU
+Loading: LYN
+Loading: LYS
+Loading: MET
+Loading: PHE
+Loading: PRO
+Loading: SER
+Loading: THR
+Loading: TRP
+Loading: TYR
+Loading: VAL
+>> loadOff aminoct12.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/aminoct12.lib
+Loading: CALA
+Loading: CARG
+Loading: CASN
+Loading: CASP
+Loading: CCYS
+Loading: CCYX
+Loading: CGLN
+Loading: CGLU
+Loading: CGLY
+Loading: CHID
+Loading: CHIE
+Loading: CHIP
+Loading: CHYP
+Loading: CILE
+Loading: CLEU
+Loading: CLYS
+Loading: CMET
+Loading: CPHE
+Loading: CPRO
+Loading: CSER
+Loading: CTHR
+Loading: CTRP
+Loading: CTYR
+Loading: CVAL
+Loading: NHE
+Loading: NME
+>> loadOff aminont12.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/aminont12.lib
+Loading: ACE
+Loading: NALA
+Loading: NARG
+Loading: NASN
+Loading: NASP
+Loading: NCYS
+Loading: NCYX
+Loading: NGLN
+Loading: NGLU
+Loading: NGLY
+Loading: NHID
+Loading: NHIE
+Loading: NHIP
+Loading: NILE
+Loading: NLEU
+Loading: NLYS
+Loading: NMET
+Loading: NPHE
+Loading: NPRO
+Loading: NSER
+Loading: NTHR
+Loading: NTRP
+Loading: NTYR
+Loading: NVAL
+>> 
+>> #
+>> #	Define the PDB name map for the amino acids
+>> #
+>> addPdbResMap {
+>>   { 0 "HYP" "NHYP" } { 1 "HYP" "CHYP" }
+>>   { 0 "ALA" "NALA" } { 1 "ALA" "CALA" }
+>>   { 0 "ARG" "NARG" } { 1 "ARG" "CARG" }
+>>   { 0 "ASN" "NASN" } { 1 "ASN" "CASN" }
+>>   { 0 "ASP" "NASP" } { 1 "ASP" "CASP" }
+>>   { 0 "CYS" "NCYS" } { 1 "CYS" "CCYS" }
+>>   { 0 "CYX" "NCYX" } { 1 "CYX" "CCYX" }
+>>   { 0 "GLN" "NGLN" } { 1 "GLN" "CGLN" }
+>>   { 0 "GLU" "NGLU" } { 1 "GLU" "CGLU" }
+>>   { 0 "GLY" "NGLY" } { 1 "GLY" "CGLY" }
+>>   { 0 "HID" "NHID" } { 1 "HID" "CHID" }
+>>   { 0 "HIE" "NHIE" } { 1 "HIE" "CHIE" }
+>>   { 0 "HIP" "NHIP" } { 1 "HIP" "CHIP" }
+>>   { 0 "ILE" "NILE" } { 1 "ILE" "CILE" }
+>>   { 0 "LEU" "NLEU" } { 1 "LEU" "CLEU" }
+>>   { 0 "LYS" "NLYS" } { 1 "LYS" "CLYS" }
+>>   { 0 "MET" "NMET" } { 1 "MET" "CMET" }
+>>   { 0 "PHE" "NPHE" } { 1 "PHE" "CPHE" }
+>>   { 0 "PRO" "NPRO" } { 1 "PRO" "CPRO" }
+>>   { 0 "SER" "NSER" } { 1 "SER" "CSER" }
+>>   { 0 "THR" "NTHR" } { 1 "THR" "CTHR" }
+>>   { 0 "TRP" "NTRP" } { 1 "TRP" "CTRP" }
+>>   { 0 "TYR" "NTYR" } { 1 "TYR" "CTYR" }
+>>   { 0 "VAL" "NVAL" } { 1 "VAL" "CVAL" }
+>>   { 0 "HIS" "NHIS" } { 1 "HIS" "CHIS" }
+>> }
+>> 
+>> #
+>> # assume that most often proteins use HIE
+>> #
+>> NHIS = NHIE
+>> HIS = HIE
+>> CHIS = CHIE
+> 
+> 
+> # Load heme residue definition and parameters
+> loadAmberPrep mgd.prepin
+Loading Prep file: ./mgd.prepin
+(UNKNOWN ATOM TYPE: hn)
+(UNKNOWN ATOM TYPE: nh)
+(UNKNOWN ATOM TYPE: hn)
+(UNKNOWN ATOM TYPE: hn)
+(UNKNOWN ATOM TYPE: nd)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: S3)
+(UNKNOWN ATOM TYPE: S4)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: c3)
+(UNKNOWN ATOM TYPE: nh)
+(UNKNOWN ATOM TYPE: hn)
+(UNKNOWN ATOM TYPE: hn)
+(UNKNOWN ATOM TYPE: nh)
+(UNKNOWN ATOM TYPE: hn)
+(UNKNOWN ATOM TYPE: hn)
+(UNKNOWN ATOM TYPE: nd)
+(UNKNOWN ATOM TYPE: nh)
+(UNKNOWN ATOM TYPE: hn)
+Loaded UNIT: MGD
+> loadAmberParams mgd.frcmod
+Loading parameters: ./mgd.frcmod
+Reading force field modification type file (frcmod)
+Reading title:
+# FF for Mo(IV) site in NAP active site, and modifications to Amber94 ff for polyphosphates
+(UNKNOWN ATOM TYPE: Mo)
+(UNKNOWN ATOM TYPE: S1)
+(UNKNOWN ATOM TYPE: S2)
+(UNKNOWN ATOM TYPE: S3)
+(UNKNOWN ATOM TYPE: S4)
+(UNKNOWN ATOM TYPE: OV)
+(UNKNOWN ATOM TYPE: SM)
+(UNKNOWN ATOM TYPE: HV)
+(UNKNOWN ATOM TYPE: O3)
+> 
+> # Create a unit containing just the HEM residue from the prep template
+> mgd = sequence { MGD }
+Sequence: MGD
+> 
+> saveAmberParm mgd mgd.prmtop mgd.inpcrd
+Checking Unit.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+The unperturbed charge of the unit (-2.726241) is not integral.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+The unperturbed charge of the unit (-2.726241) is not zero.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+Ignoring the warnings from Unit Checking.
+
+Building topology.
+Building atom parameters.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<O6 1>) could not find vdW (or other) parameters for type (o)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C6 2>) could not find vdW (or other) parameters for type (c)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<N1 3>) could not find vdW (or other) parameters for type (n)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H9 4>) could not find vdW (or other) parameters for type (hn)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C2 5>) could not find vdW (or other) parameters for type (cc)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<N2 6>) could not find vdW (or other) parameters for type (nh)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H10 7>) could not find vdW (or other) parameters for type (hn)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H11 8>) could not find vdW (or other) parameters for type (hn)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<N3 9>) could not find vdW (or other) parameters for type (nd)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C4 10>) could not find vdW (or other) parameters for type (cd)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C5 11>) could not find vdW (or other) parameters for type (cc)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<N7 12>) could not find vdW (or other) parameters for type (nc)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C8 13>) could not find vdW (or other) parameters for type (cd)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H12 14>) could not find vdW (or other) parameters for type (h5)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<N9 15>) could not find vdW (or other) parameters for type (na)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C1' 16>) could not find vdW (or other) parameters for type (c3)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C2' 17>) could not find vdW (or other) parameters for type (c3)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C3' 18>) could not find vdW (or other) parameters for type (c3)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<O3' 19>) could not find vdW (or other) parameters for type (oh)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H5 20>) could not find vdW (or other) parameters for type (ho)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H4 21>) could not find vdW (or other) parameters for type (h1)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<O2' 22>) could not find vdW (or other) parameters for type (oh)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H7 23>) could not find vdW (or other) parameters for type (ho)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H6 24>) could not find vdW (or other) parameters for type (h1)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H8 25>) could not find vdW (or other) parameters for type (h2)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<O4' 26>) could not find vdW (or other) parameters for type (os)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C4' 27>) could not find vdW (or other) parameters for type (c3)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H3 28>) could not find vdW (or other) parameters for type (h1)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C5' 29>) could not find vdW (or other) parameters for type (c3)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H1 30>) could not find vdW (or other) parameters for type (h1)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H2 31>) could not find vdW (or other) parameters for type (h1)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C10 41>) could not find vdW (or other) parameters for type (c3)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H13 42>) could not find vdW (or other) parameters for type (h1)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H14 43>) could not find vdW (or other) parameters for type (h1)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C11 44>) could not find vdW (or other) parameters for type (c3)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C12 45>) could not find vdW (or other) parameters for type (c)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C13 47>) could not find vdW (or other) parameters for type (c)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H15 49>) could not find vdW (or other) parameters for type (h1)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<O11 50>) could not find vdW (or other) parameters for type (os)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C23 51>) could not find vdW (or other) parameters for type (c3)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H22 52>) could not find vdW (or other) parameters for type (h2)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C14 53>) could not find vdW (or other) parameters for type (c3)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H16 54>) could not find vdW (or other) parameters for type (h1)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<N15 55>) could not find vdW (or other) parameters for type (nh)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H17 56>) could not find vdW (or other) parameters for type (hn)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C16 57>) could not find vdW (or other) parameters for type (cc)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C17 58>) could not find vdW (or other) parameters for type (c)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<O17 59>) could not find vdW (or other) parameters for type (o)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<N18 60>) could not find vdW (or other) parameters for type (n)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H18 61>) could not find vdW (or other) parameters for type (hn)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C19 62>) could not find vdW (or other) parameters for type (cc)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<N19 63>) could not find vdW (or other) parameters for type (nh)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H19 64>) could not find vdW (or other) parameters for type (hn)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H20 65>) could not find vdW (or other) parameters for type (hn)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<N20 66>) could not find vdW (or other) parameters for type (nd)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<C21 67>) could not find vdW (or other) parameters for type (cd)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<N22 68>) could not find vdW (or other) parameters for type (nh)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Error!
+For atom (.R<MGD 1>.A<H21 69>) could not find vdW (or other) parameters for type (hn)
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+Parameter file was not saved.
+> quit
+	Quit
+
+Exiting LEaP: Errors = 58; Warnings = 3; Notes = 1.
+log started: Fri Feb 13 14:40:38 2026
+
+Log file: ./leap.log
+>> #
+>> # ----- leaprc for loading the general Amber Force field.
+>> #       This file is mostly for use with Antechamber
+>> #
+>> #	load atom type hybridizations
+>> #
+>> addAtomTypes {
+>> 	{ "h1"  "H" "sp3" }
+>> 	{ "h2"  "H" "sp3" }
+>> 	{ "h3"  "H" "sp3" }
+>> 	{ "h4"  "H" "sp3" }
+>> 	{ "h5"  "H" "sp3" }
+>> 	{ "ha"  "H" "sp3" }
+>> 	{ "hc"  "H" "sp3" }
+>> 	{ "hn"  "H" "sp3" }
+>> 	{ "ho"  "H" "sp3" }
+>> 	{ "hp"  "H" "sp3" }
+>> 	{ "hs"  "H" "sp3" }
+>> 	{ "hw"  "H" "sp3" }
+>> 	{ "hx"  "H" "sp3" }
+>> 	{ "o"  "O" "sp2" }
+>> 	{ "o2"  "O" "sp2" }
+>> 	{ "oh"  "O" "sp3" }
+>> 	{ "op"  "O" "sp3" }
+>> 	{ "oq"  "O" "sp3" }
+>> 	{ "os"  "O" "sp3" }
+>> 	{ "ow"  "O" "sp3" }
+>> 	{ "c"  "C" "sp2" }
+>> 	{ "c1"  "C" "sp2" }
+>> 	{ "c2"  "C" "sp2" }
+>> 	{ "c3"  "C" "sp3" }
+>> 	{ "c5"  "C" "sp3" }
+>> 	{ "c6"  "C" "sp3" }
+>> 	{ "ca"  "C" "sp2" }
+>> 	{ "cc"  "C" "sp2" }
+>> 	{ "cd"  "C" "sp2" }
+>> 	{ "ce"  "C" "sp2" }
+>> 	{ "cf"  "C" "sp2" }
+>> 	{ "cg"  "C" "sp2" }
+>> 	{ "ch"  "C" "sp2" }
+>> 	{ "cp"  "C" "sp2" }
+>> 	{ "cs"  "C" "sp2" }
+>> 	{ "cq"  "C" "sp2" }
+>> 	{ "cu"  "C" "sp2" }
+>> 	{ "cv"  "C" "sp2" }
+>> 	{ "cx"  "C" "sp2" }
+>> 	{ "cy"  "C" "sp2" }
+>> 	{ "cz"  "C" "sp2" }
+>> 	{ "n"   "N" "sp2" }
+>> 	{ "n1"  "N" "sp2" }
+>> 	{ "n2"  "N" "sp2" }
+>> 	{ "n3"  "N" "sp3" }
+>> 	{ "n4"  "N" "sp3" }
+>> 	{ "n5"  "N" "sp3" }
+>> 	{ "n6"  "N" "sp3" }
+>> 	{ "n7"  "N" "sp3" }
+>> 	{ "n8"  "N" "sp3" }
+>> 	{ "n9"  "N" "sp3" }
+>> 	{ "na"  "N" "sp2" }
+>> 	{ "nb"  "N" "sp2" }
+>> 	{ "nc"  "N" "sp2" }
+>> 	{ "nd"  "N" "sp2" }
+>> 	{ "ne"  "N" "sp2" }
+>> 	{ "nf"  "N" "sp2" }
+>> 	{ "nh"  "N" "sp2" }
+>> 	{ "ni"  "N" "sp2" }
+>> 	{ "nj"  "N" "sp2" }
+>> 	{ "nk"  "N" "sp3" }
+>> 	{ "nl"  "N" "sp3" }
+>> 	{ "nm"  "N" "sp2" }
+>> 	{ "nn"  "N" "sp2" }
+>> 	{ "no"  "N" "sp2" }
+>> 	{ "np"  "N" "sp3" }
+>> 	{ "nq"  "N" "sp3" }
+>> 	{ "ns"  "N" "sp2" }
+>> 	{ "nt"  "N" "sp2" }
+>> 	{ "nu"  "N" "sp2" }
+>> 	{ "nv"  "N" "sp2" }
+>> 	{ "nx"  "N" "sp3" }
+>> 	{ "ny"  "N" "sp3" }
+>> 	{ "nz"  "N" "sp3" }
+>> 	{ "n+"  "N" "sp3" }
+>> 	{ "s"   "S" "sp2" }
+>> 	{ "s2"   "S" "sp2" }
+>> 	{ "s3"   "S" "sp3" }
+>> 	{ "s4"   "S" "sp3" }
+>> 	{ "s6"   "S" "sp3" }
+>> 	{ "sh"   "S" "sp3" }
+>> 	{ "sp"   "S" "sp3" }
+>> 	{ "sq"   "S" "sp3" }
+>> 	{ "ss"   "S" "sp3" }
+>> 	{ "sx"   "S" "sp3" }
+>> 	{ "sy"   "S" "sp3" }
+>> 	{ "p2"   "P" "sp2" }
+>> 	{ "p3"   "P" "sp3" }
+>> 	{ "p4"   "P" "sp3" }
+>> 	{ "p5"   "P" "sp3" }
+>> 	{ "pb"   "P" "sp3" }
+>> 	{ "pc"   "P" "sp3" }
+>> 	{ "pd"   "P" "sp3" }
+>> 	{ "pe"   "P" "sp3" }
+>> 	{ "pf"   "P" "sp3" }
+>> 	{ "px"   "P" "sp3" }
+>> 	{ "py"   "P" "sp3" }
+>> 	{ "f"   "F" "sp3" }
+>> 	{ "cl"  "Cl" "sp3" }
+>> 	{ "br"  "Br" "sp3" }
+>> 	{ "i"   "I"  "sp3" }
+>> }
+>> #
+>> #	Load the general force field parameter set.
+>> #
+>> gaff = loadamberparams gaff2.dat
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/gaff2.dat
+Reading title:
+AMBER General Force Field for organic molecules (Version 2.2.20, March 2021)
+> 
+> source leaprc.protein.ff19SB
+----- Source: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/cmd/leaprc.protein.ff19SB
+----- Source of /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/cmd/leaprc.protein.ff19SB done
+>> logFile leap.log
+log started: Fri Feb 13 14:40:38 2026
+
+Log file: ./leap.log
+>> #
+>> # ----- leaprc for loading the ff19SB force field
+>> # ----- NOTE: this is designed for PDB format 3!
+>> #
+>> #	load atom type hybridizations
+>> #
+>> addAtomTypes {
+>> 	{ "H"   "H" "sp3" }
+>> 	{ "HO"  "H" "sp3" }
+>> 	{ "HS"  "H" "sp3" }
+>> 	{ "H1"  "H" "sp3" }
+>> 	{ "H2"  "H" "sp3" }
+>> 	{ "H3"  "H" "sp3" }
+>> 	{ "H4"  "H" "sp3" }
+>> 	{ "H5"  "H" "sp3" }
+>> 	{ "HW"  "H" "sp3" }
+>> 	{ "HC"  "H" "sp3" }
+>> 	{ "HA"  "H" "sp3" }
+>> 	{ "HP"  "H" "sp3" }
+>> 	{ "HZ"  "H" "sp3" }
+>> 	{ "OH"  "O" "sp3" }
+>> 	{ "OS"  "O" "sp3" }
+>> 	{ "O"   "O" "sp2" }
+>> 	{ "O2"  "O" "sp2" }
+>> 	{ "OP"  "O" "sp2" }
+>> 	{ "OW"  "O" "sp3" }
+>> 	{ "CT"  "C" "sp3" }
+>> 	{ "CX"  "C" "sp3" }
+>> 	{ "XC"  "C" "sp3" }
+>> 	{ "C8"  "C" "sp3" }
+>> 	{ "2C"  "C" "sp3" }
+>> 	{ "3C"  "C" "sp3" }
+>> 	{ "CH"  "C" "sp3" }
+>> 	{ "CS"  "C" "sp2" }
+>> 	{ "C"   "C" "sp2" }
+>> 	{ "CO"   "C" "sp2" }
+>> 	{ "C*"  "C" "sp2" }
+>> 	{ "CA"  "C" "sp2" }
+>> 	{ "CB"  "C" "sp2" }
+>> 	{ "CC"  "C" "sp2" }
+>> 	{ "CN"  "C" "sp2" }
+>> 	{ "CM"  "C" "sp2" }
+>> 	{ "CK"  "C" "sp2" }
+>> 	{ "CQ"  "C" "sp2" }
+>> 	{ "CD"  "C" "sp2" }
+>> 	{ "C5"  "C" "sp2" }
+>> 	{ "C4"  "C" "sp2" }
+>> 	{ "CP"  "C" "sp2" }
+>> 	{ "CI"  "C" "sp3" }
+>> 	{ "CJ"  "C" "sp2" }
+>> 	{ "CW"  "C" "sp2" }
+>> 	{ "CV"  "C" "sp2" }
+>> 	{ "CR"  "C" "sp2" }
+>> 	{ "CA"  "C" "sp2" }
+>> 	{ "CY"  "C" "sp2" }
+>> 	{ "C0"  "Ca" "sp3" }
+>> 	{ "MG"  "Mg" "sp3" }
+>> 	{ "N"   "N" "sp2" }
+>> 	{ "NA"  "N" "sp2" }
+>> 	{ "N2"  "N" "sp2" }
+>> 	{ "N*"  "N" "sp2" }
+>> 	{ "NP"  "N" "sp2" }
+>> 	{ "NQ"  "N" "sp2" }
+>> 	{ "NB"  "N" "sp2" }
+>> 	{ "NC"  "N" "sp2" }
+>> 	{ "NT"  "N" "sp3" }
+>> 	{ "NY"  "N" "sp2" }
+>> 	{ "N3"  "N" "sp3" }
+>> 	{ "S"   "S" "sp3" }
+>> 	{ "SH"  "S" "sp3" }
+>> 	{ "P"   "P" "sp3" }
+>> 	{ "LP"  ""  "sp3" }
+>> 	{ "EP"  ""  "sp3" }
+>> 	{ "F"   "F" "sp3" }
+>> 	{ "Cl"  "Cl" "sp3" }
+>> 	{ "Br"  "Br" "sp3" }
+>> 	{ "I"   "I"  "sp3" }
+>> }
+>> #
+>> #	Load the main parameter set.
+>> #
+>> set default cmap on
+>> parm19 = loadamberparams parm19.dat
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/parm19.dat
+Reading title:
+PARM99 + frcmod.ff99SB + frcmod.parmbsc0 + OL3 for RNA + ff19SB
+(UNKNOWN ATOM TYPE: Zn)
+(UNKNOWN ATOM TYPE: EP)
+>> frcmod19SB = loadamberparams frcmod.ff19SB
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/frcmod.ff19SB
+Reading force field modification type file (frcmod)
+Reading title:
+ff19SB AA-specific backbone CMAPs for protein 07/25/2019
+>> #
+>> #	Load main chain and terminating amino acid libraries
+>> #
+>> loadOff amino19.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/amino19.lib
+Loading: ALA
+Loading: ARG
+Loading: ASH
+Loading: ASN
+Loading: ASP
+Loading: CYM
+Loading: CYS
+Loading: CYX
+Loading: GLH
+Loading: GLN
+Loading: GLU
+Loading: GLY
+Loading: HID
+Loading: HIE
+Loading: HIP
+Loading: HYP
+Loading: ILE
+Loading: LEU
+Loading: LYN
+Loading: LYS
+Loading: MET
+Loading: PHE
+Loading: PRO
+Loading: SER
+Loading: THR
+Loading: TRP
+Loading: TYR
+Loading: VAL
+>> loadOff aminoct12.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/aminoct12.lib
+Loading: CALA
+Loading: CARG
+Loading: CASN
+Loading: CASP
+Loading: CCYS
+Loading: CCYX
+Loading: CGLN
+Loading: CGLU
+Loading: CGLY
+Loading: CHID
+Loading: CHIE
+Loading: CHIP
+Loading: CHYP
+Loading: CILE
+Loading: CLEU
+Loading: CLYS
+Loading: CMET
+Loading: CPHE
+Loading: CPRO
+Loading: CSER
+Loading: CTHR
+Loading: CTRP
+Loading: CTYR
+Loading: CVAL
+Loading: NHE
+Loading: NME
+>> loadOff aminont12.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/aminont12.lib
+Loading: ACE
+Loading: NALA
+Loading: NARG
+Loading: NASN
+Loading: NASP
+Loading: NCYS
+Loading: NCYX
+Loading: NGLN
+Loading: NGLU
+Loading: NGLY
+Loading: NHID
+Loading: NHIE
+Loading: NHIP
+Loading: NILE
+Loading: NLEU
+Loading: NLYS
+Loading: NMET
+Loading: NPHE
+Loading: NPRO
+Loading: NSER
+Loading: NTHR
+Loading: NTRP
+Loading: NTYR
+Loading: NVAL
+>> 
+>> #
+>> #	Define the PDB name map for the amino acids
+>> #
+>> addPdbResMap {
+>>   { 0 "HYP" "NHYP" } { 1 "HYP" "CHYP" }
+>>   { 0 "ALA" "NALA" } { 1 "ALA" "CALA" }
+>>   { 0 "ARG" "NARG" } { 1 "ARG" "CARG" }
+>>   { 0 "ASN" "NASN" } { 1 "ASN" "CASN" }
+>>   { 0 "ASP" "NASP" } { 1 "ASP" "CASP" }
+>>   { 0 "CYS" "NCYS" } { 1 "CYS" "CCYS" }
+>>   { 0 "CYX" "NCYX" } { 1 "CYX" "CCYX" }
+>>   { 0 "GLN" "NGLN" } { 1 "GLN" "CGLN" }
+>>   { 0 "GLU" "NGLU" } { 1 "GLU" "CGLU" }
+>>   { 0 "GLY" "NGLY" } { 1 "GLY" "CGLY" }
+>>   { 0 "HID" "NHID" } { 1 "HID" "CHID" }
+>>   { 0 "HIE" "NHIE" } { 1 "HIE" "CHIE" }
+>>   { 0 "HIP" "NHIP" } { 1 "HIP" "CHIP" }
+>>   { 0 "ILE" "NILE" } { 1 "ILE" "CILE" }
+>>   { 0 "LEU" "NLEU" } { 1 "LEU" "CLEU" }
+>>   { 0 "LYS" "NLYS" } { 1 "LYS" "CLYS" }
+>>   { 0 "MET" "NMET" } { 1 "MET" "CMET" }
+>>   { 0 "PHE" "NPHE" } { 1 "PHE" "CPHE" }
+>>   { 0 "PRO" "NPRO" } { 1 "PRO" "CPRO" }
+>>   { 0 "SER" "NSER" } { 1 "SER" "CSER" }
+>>   { 0 "THR" "NTHR" } { 1 "THR" "CTHR" }
+>>   { 0 "TRP" "NTRP" } { 1 "TRP" "CTRP" }
+>>   { 0 "TYR" "NTYR" } { 1 "TYR" "CTYR" }
+>>   { 0 "VAL" "NVAL" } { 1 "VAL" "CVAL" }
+>>   { 0 "HIS" "NHIS" } { 1 "HIS" "CHIS" }
+>> }
+>> 
+>> #
+>> # assume that most often proteins use HIE
+>> #
+>> NHIS = NHIE
+>> HIS = HIE
+>> CHIS = CHIE
+> 
+> 
+> # Load heme residue definition and parameters
+> loadAmberPrep mgd.prepin
+Loading Prep file: ./mgd.prepin
+Loaded UNIT: MGD
+> loadAmberParams mgd.frcmod
+Loading parameters: ./mgd.frcmod
+Reading force field modification type file (frcmod)
+Reading title:
+# FF for Mo(IV) site in NAP active site, and modifications to Amber94 ff for polyphosphates
+(UNKNOWN ATOM TYPE: Mo)
+(UNKNOWN ATOM TYPE: S1)
+(UNKNOWN ATOM TYPE: OV)
+(UNKNOWN ATOM TYPE: SM)
+(UNKNOWN ATOM TYPE: HV)
+(UNKNOWN ATOM TYPE: O3)
+> 
+> # Create a unit containing just the HEM residue from the prep template
+> mgd = sequence { MGD }
+Sequence: MGD
+> 
+> saveAmberParm mgd mgd.prmtop mgd.inpcrd
+Checking Unit.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+The unperturbed charge of the unit (-2.726241) is not integral.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+The unperturbed charge of the unit (-2.726241) is not zero.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+Ignoring the warnings from Unit Checking.
+
+Building topology.
+Building atom parameters.
+Building bond parameters.
+Building angle parameters.
+Building proper torsion parameters.
+Building improper torsion parameters.
+ ** Warning: No sp2 improper torsion term for  cd-hn-nh-c3
+        atoms are: C21 H21 N22 C23
+ ** Warning: No sp2 improper torsion term for  nd-nh-cd-cc
+        atoms are: N20 N22 C21 C16
+ ** Warning: No sp2 improper torsion term for  cc-hn-nh-hn
+        atoms are: C19 H19 N19 H20
+ ** Warning: No sp2 improper torsion term for  n-nh-cc-nd
+        atoms are: N18 N19 C19 N20
+ ** Warning: No sp2 improper torsion term for  nh-c-cc-cd
+        atoms are: N15 C17 C16 C21
+ ** Warning: No sp2 improper torsion term for  c3-hn-nh-cc
+        atoms are: C14 H17 N15 C16
+ ** Warning: No sp2 improper torsion term for  c-S4-c-c3
+        atoms are: C12 S13 C13 C14
+ ** Warning: No sp2 improper torsion term for  c3-S3-c-c
+        atoms are: C11 S12 C12 C13
+ ** Warning: No sp2 improper torsion term for  cd-c3-na-cd
+        atoms are: C8 C1' N9 C4
+ ** Warning: No sp2 improper torsion term for  nc-h5-cd-na
+        atoms are: N7 H12 C8 N9
+ ** Warning: No sp2 improper torsion term for  cd-nc-cc-c
+        atoms are: C4 N7 C5 C6
+ ** Warning: No sp2 improper torsion term for  nd-cc-cd-na
+        atoms are: N3 C5 C4 N9
+ ** Warning: No sp2 improper torsion term for  cc-hn-nh-hn
+        atoms are: C2 H10 N2 H11
+ ** Warning: No sp2 improper torsion term for  n-nh-cc-nd
+        atoms are: N1 N2 C2 N3
+old PREP-specified impropers:
+ <MGD 1>:  C5   N1   C6   O6  
+ <MGD 1>:  C6   C2   N1   H9  
+ <MGD 1>:  N1   N3   C2   N2  
+ <MGD 1>:  C2   H11  N2   H10 
+ <MGD 1>:  C5   N9   C4   N3  
+ <MGD 1>:  C6   C4   C5   N7  
+ <MGD 1>:  H12  N9   C8   N7  
+ <MGD 1>:  C1'  C4   N9   C8  
+ <MGD 1>:  C11  C13  C12  S12 
+ <MGD 1>:  C14  C12  C13  S13 
+ <MGD 1>:  C14  C16  N15  H17 
+ <MGD 1>:  C17  C21  C16  N15 
+ <MGD 1>:  C16  N18  C17  O17 
+ <MGD 1>:  C17  C19  N18  H18 
+ <MGD 1>:  N18  N20  C19  N19 
+ <MGD 1>:  C19  H19  N19  H20 
+ <MGD 1>:  C16  N20  C21  N22 
+ <MGD 1>:  C23  C21  N22  H21 
+ total 4 improper torsions applied
+ 18 improper torsions in old prep form
+Building H-Bond parameters.
+Incorporating Non-Bonded adjustments.
+Not Marking per-residue atom chain types.
+Marking per-residue atom chain types.
+ (no restraints)
+> quit
+	Quit
+
+Exiting LEaP: Errors = 0; Warnings = 2; Notes = 1.
+log started: Sun Feb 15 14:51:34 2026
+
+Log file: ./leap.log
+>> #
+>> # ----- leaprc for loading the general Amber Force field.
+>> #       This file is mostly for use with Antechamber
+>> #
+>> #	load atom type hybridizations
+>> #
+>> addAtomTypes {
+>> 	{ "h1"  "H" "sp3" }
+>> 	{ "h2"  "H" "sp3" }
+>> 	{ "h3"  "H" "sp3" }
+>> 	{ "h4"  "H" "sp3" }
+>> 	{ "h5"  "H" "sp3" }
+>> 	{ "ha"  "H" "sp3" }
+>> 	{ "hc"  "H" "sp3" }
+>> 	{ "hn"  "H" "sp3" }
+>> 	{ "ho"  "H" "sp3" }
+>> 	{ "hp"  "H" "sp3" }
+>> 	{ "hs"  "H" "sp3" }
+>> 	{ "hw"  "H" "sp3" }
+>> 	{ "hx"  "H" "sp3" }
+>> 	{ "o"  "O" "sp2" }
+>> 	{ "o2"  "O" "sp2" }
+>> 	{ "oh"  "O" "sp3" }
+>> 	{ "op"  "O" "sp3" }
+>> 	{ "oq"  "O" "sp3" }
+>> 	{ "os"  "O" "sp3" }
+>> 	{ "ow"  "O" "sp3" }
+>> 	{ "c"  "C" "sp2" }
+>> 	{ "c1"  "C" "sp2" }
+>> 	{ "c2"  "C" "sp2" }
+>> 	{ "c3"  "C" "sp3" }
+>> 	{ "c5"  "C" "sp3" }
+>> 	{ "c6"  "C" "sp3" }
+>> 	{ "ca"  "C" "sp2" }
+>> 	{ "cc"  "C" "sp2" }
+>> 	{ "cd"  "C" "sp2" }
+>> 	{ "ce"  "C" "sp2" }
+>> 	{ "cf"  "C" "sp2" }
+>> 	{ "cg"  "C" "sp2" }
+>> 	{ "ch"  "C" "sp2" }
+>> 	{ "cp"  "C" "sp2" }
+>> 	{ "cs"  "C" "sp2" }
+>> 	{ "cq"  "C" "sp2" }
+>> 	{ "cu"  "C" "sp2" }
+>> 	{ "cv"  "C" "sp2" }
+>> 	{ "cx"  "C" "sp2" }
+>> 	{ "cy"  "C" "sp2" }
+>> 	{ "cz"  "C" "sp2" }
+>> 	{ "n"   "N" "sp2" }
+>> 	{ "n1"  "N" "sp2" }
+>> 	{ "n2"  "N" "sp2" }
+>> 	{ "n3"  "N" "sp3" }
+>> 	{ "n4"  "N" "sp3" }
+>> 	{ "n5"  "N" "sp3" }
+>> 	{ "n6"  "N" "sp3" }
+>> 	{ "n7"  "N" "sp3" }
+>> 	{ "n8"  "N" "sp3" }
+>> 	{ "n9"  "N" "sp3" }
+>> 	{ "na"  "N" "sp2" }
+>> 	{ "nb"  "N" "sp2" }
+>> 	{ "nc"  "N" "sp2" }
+>> 	{ "nd"  "N" "sp2" }
+>> 	{ "ne"  "N" "sp2" }
+>> 	{ "nf"  "N" "sp2" }
+>> 	{ "nh"  "N" "sp2" }
+>> 	{ "ni"  "N" "sp2" }
+>> 	{ "nj"  "N" "sp2" }
+>> 	{ "nk"  "N" "sp3" }
+>> 	{ "nl"  "N" "sp3" }
+>> 	{ "nm"  "N" "sp2" }
+>> 	{ "nn"  "N" "sp2" }
+>> 	{ "no"  "N" "sp2" }
+>> 	{ "np"  "N" "sp3" }
+>> 	{ "nq"  "N" "sp3" }
+>> 	{ "ns"  "N" "sp2" }
+>> 	{ "nt"  "N" "sp2" }
+>> 	{ "nu"  "N" "sp2" }
+>> 	{ "nv"  "N" "sp2" }
+>> 	{ "nx"  "N" "sp3" }
+>> 	{ "ny"  "N" "sp3" }
+>> 	{ "nz"  "N" "sp3" }
+>> 	{ "n+"  "N" "sp3" }
+>> 	{ "s"   "S" "sp2" }
+>> 	{ "s2"   "S" "sp2" }
+>> 	{ "s3"   "S" "sp3" }
+>> 	{ "s4"   "S" "sp3" }
+>> 	{ "s6"   "S" "sp3" }
+>> 	{ "sh"   "S" "sp3" }
+>> 	{ "sp"   "S" "sp3" }
+>> 	{ "sq"   "S" "sp3" }
+>> 	{ "ss"   "S" "sp3" }
+>> 	{ "sx"   "S" "sp3" }
+>> 	{ "sy"   "S" "sp3" }
+>> 	{ "p2"   "P" "sp2" }
+>> 	{ "p3"   "P" "sp3" }
+>> 	{ "p4"   "P" "sp3" }
+>> 	{ "p5"   "P" "sp3" }
+>> 	{ "pb"   "P" "sp3" }
+>> 	{ "pc"   "P" "sp3" }
+>> 	{ "pd"   "P" "sp3" }
+>> 	{ "pe"   "P" "sp3" }
+>> 	{ "pf"   "P" "sp3" }
+>> 	{ "px"   "P" "sp3" }
+>> 	{ "py"   "P" "sp3" }
+>> 	{ "f"   "F" "sp3" }
+>> 	{ "cl"  "Cl" "sp3" }
+>> 	{ "br"  "Br" "sp3" }
+>> 	{ "i"   "I"  "sp3" }
+>> }
+>> #
+>> #	Load the general force field parameter set.
+>> #
+>> gaff = loadamberparams gaff2.dat
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/gaff2.dat
+Reading title:
+AMBER General Force Field for organic molecules (Version 2.2.20, March 2021)
+> 
+> source leaprc.protein.ff19SB
+----- Source: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/cmd/leaprc.protein.ff19SB
+----- Source of /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/cmd/leaprc.protein.ff19SB done
+>> logFile leap.log
+log started: Sun Feb 15 14:51:34 2026
+
+Log file: ./leap.log
+>> #
+>> # ----- leaprc for loading the ff19SB force field
+>> # ----- NOTE: this is designed for PDB format 3!
+>> #
+>> #	load atom type hybridizations
+>> #
+>> addAtomTypes {
+>> 	{ "H"   "H" "sp3" }
+>> 	{ "HO"  "H" "sp3" }
+>> 	{ "HS"  "H" "sp3" }
+>> 	{ "H1"  "H" "sp3" }
+>> 	{ "H2"  "H" "sp3" }
+>> 	{ "H3"  "H" "sp3" }
+>> 	{ "H4"  "H" "sp3" }
+>> 	{ "H5"  "H" "sp3" }
+>> 	{ "HW"  "H" "sp3" }
+>> 	{ "HC"  "H" "sp3" }
+>> 	{ "HA"  "H" "sp3" }
+>> 	{ "HP"  "H" "sp3" }
+>> 	{ "HZ"  "H" "sp3" }
+>> 	{ "OH"  "O" "sp3" }
+>> 	{ "OS"  "O" "sp3" }
+>> 	{ "O"   "O" "sp2" }
+>> 	{ "O2"  "O" "sp2" }
+>> 	{ "OP"  "O" "sp2" }
+>> 	{ "OW"  "O" "sp3" }
+>> 	{ "CT"  "C" "sp3" }
+>> 	{ "CX"  "C" "sp3" }
+>> 	{ "XC"  "C" "sp3" }
+>> 	{ "C8"  "C" "sp3" }
+>> 	{ "2C"  "C" "sp3" }
+>> 	{ "3C"  "C" "sp3" }
+>> 	{ "CH"  "C" "sp3" }
+>> 	{ "CS"  "C" "sp2" }
+>> 	{ "C"   "C" "sp2" }
+>> 	{ "CO"   "C" "sp2" }
+>> 	{ "C*"  "C" "sp2" }
+>> 	{ "CA"  "C" "sp2" }
+>> 	{ "CB"  "C" "sp2" }
+>> 	{ "CC"  "C" "sp2" }
+>> 	{ "CN"  "C" "sp2" }
+>> 	{ "CM"  "C" "sp2" }
+>> 	{ "CK"  "C" "sp2" }
+>> 	{ "CQ"  "C" "sp2" }
+>> 	{ "CD"  "C" "sp2" }
+>> 	{ "C5"  "C" "sp2" }
+>> 	{ "C4"  "C" "sp2" }
+>> 	{ "CP"  "C" "sp2" }
+>> 	{ "CI"  "C" "sp3" }
+>> 	{ "CJ"  "C" "sp2" }
+>> 	{ "CW"  "C" "sp2" }
+>> 	{ "CV"  "C" "sp2" }
+>> 	{ "CR"  "C" "sp2" }
+>> 	{ "CA"  "C" "sp2" }
+>> 	{ "CY"  "C" "sp2" }
+>> 	{ "C0"  "Ca" "sp3" }
+>> 	{ "MG"  "Mg" "sp3" }
+>> 	{ "N"   "N" "sp2" }
+>> 	{ "NA"  "N" "sp2" }
+>> 	{ "N2"  "N" "sp2" }
+>> 	{ "N*"  "N" "sp2" }
+>> 	{ "NP"  "N" "sp2" }
+>> 	{ "NQ"  "N" "sp2" }
+>> 	{ "NB"  "N" "sp2" }
+>> 	{ "NC"  "N" "sp2" }
+>> 	{ "NT"  "N" "sp3" }
+>> 	{ "NY"  "N" "sp2" }
+>> 	{ "N3"  "N" "sp3" }
+>> 	{ "S"   "S" "sp3" }
+>> 	{ "SH"  "S" "sp3" }
+>> 	{ "P"   "P" "sp3" }
+>> 	{ "LP"  ""  "sp3" }
+>> 	{ "EP"  ""  "sp3" }
+>> 	{ "F"   "F" "sp3" }
+>> 	{ "Cl"  "Cl" "sp3" }
+>> 	{ "Br"  "Br" "sp3" }
+>> 	{ "I"   "I"  "sp3" }
+>> }
+>> #
+>> #	Load the main parameter set.
+>> #
+>> set default cmap on
+>> parm19 = loadamberparams parm19.dat
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/parm19.dat
+Reading title:
+PARM99 + frcmod.ff99SB + frcmod.parmbsc0 + OL3 for RNA + ff19SB
+(UNKNOWN ATOM TYPE: Zn)
+(UNKNOWN ATOM TYPE: EP)
+>> frcmod19SB = loadamberparams frcmod.ff19SB
+Loading parameters: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/parm/frcmod.ff19SB
+Reading force field modification type file (frcmod)
+Reading title:
+ff19SB AA-specific backbone CMAPs for protein 07/25/2019
+>> #
+>> #	Load main chain and terminating amino acid libraries
+>> #
+>> loadOff amino19.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/amino19.lib
+Loading: ALA
+Loading: ARG
+Loading: ASH
+Loading: ASN
+Loading: ASP
+Loading: CYM
+Loading: CYS
+Loading: CYX
+Loading: GLH
+Loading: GLN
+Loading: GLU
+Loading: GLY
+Loading: HID
+Loading: HIE
+Loading: HIP
+Loading: HYP
+Loading: ILE
+Loading: LEU
+Loading: LYN
+Loading: LYS
+Loading: MET
+Loading: PHE
+Loading: PRO
+Loading: SER
+Loading: THR
+Loading: TRP
+Loading: TYR
+Loading: VAL
+>> loadOff aminoct12.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/aminoct12.lib
+Loading: CALA
+Loading: CARG
+Loading: CASN
+Loading: CASP
+Loading: CCYS
+Loading: CCYX
+Loading: CGLN
+Loading: CGLU
+Loading: CGLY
+Loading: CHID
+Loading: CHIE
+Loading: CHIP
+Loading: CHYP
+Loading: CILE
+Loading: CLEU
+Loading: CLYS
+Loading: CMET
+Loading: CPHE
+Loading: CPRO
+Loading: CSER
+Loading: CTHR
+Loading: CTRP
+Loading: CTYR
+Loading: CVAL
+Loading: NHE
+Loading: NME
+>> loadOff aminont12.lib
+Loading library: /home/robin/miniconda3/envs/DESPOT_v2/dat/leap/lib/aminont12.lib
+Loading: ACE
+Loading: NALA
+Loading: NARG
+Loading: NASN
+Loading: NASP
+Loading: NCYS
+Loading: NCYX
+Loading: NGLN
+Loading: NGLU
+Loading: NGLY
+Loading: NHID
+Loading: NHIE
+Loading: NHIP
+Loading: NILE
+Loading: NLEU
+Loading: NLYS
+Loading: NMET
+Loading: NPHE
+Loading: NPRO
+Loading: NSER
+Loading: NTHR
+Loading: NTRP
+Loading: NTYR
+Loading: NVAL
+>> 
+>> #
+>> #	Define the PDB name map for the amino acids
+>> #
+>> addPdbResMap {
+>>   { 0 "HYP" "NHYP" } { 1 "HYP" "CHYP" }
+>>   { 0 "ALA" "NALA" } { 1 "ALA" "CALA" }
+>>   { 0 "ARG" "NARG" } { 1 "ARG" "CARG" }
+>>   { 0 "ASN" "NASN" } { 1 "ASN" "CASN" }
+>>   { 0 "ASP" "NASP" } { 1 "ASP" "CASP" }
+>>   { 0 "CYS" "NCYS" } { 1 "CYS" "CCYS" }
+>>   { 0 "CYX" "NCYX" } { 1 "CYX" "CCYX" }
+>>   { 0 "GLN" "NGLN" } { 1 "GLN" "CGLN" }
+>>   { 0 "GLU" "NGLU" } { 1 "GLU" "CGLU" }
+>>   { 0 "GLY" "NGLY" } { 1 "GLY" "CGLY" }
+>>   { 0 "HID" "NHID" } { 1 "HID" "CHID" }
+>>   { 0 "HIE" "NHIE" } { 1 "HIE" "CHIE" }
+>>   { 0 "HIP" "NHIP" } { 1 "HIP" "CHIP" }
+>>   { 0 "ILE" "NILE" } { 1 "ILE" "CILE" }
+>>   { 0 "LEU" "NLEU" } { 1 "LEU" "CLEU" }
+>>   { 0 "LYS" "NLYS" } { 1 "LYS" "CLYS" }
+>>   { 0 "MET" "NMET" } { 1 "MET" "CMET" }
+>>   { 0 "PHE" "NPHE" } { 1 "PHE" "CPHE" }
+>>   { 0 "PRO" "NPRO" } { 1 "PRO" "CPRO" }
+>>   { 0 "SER" "NSER" } { 1 "SER" "CSER" }
+>>   { 0 "THR" "NTHR" } { 1 "THR" "CTHR" }
+>>   { 0 "TRP" "NTRP" } { 1 "TRP" "CTRP" }
+>>   { 0 "TYR" "NTYR" } { 1 "TYR" "CTYR" }
+>>   { 0 "VAL" "NVAL" } { 1 "VAL" "CVAL" }
+>>   { 0 "HIS" "NHIS" } { 1 "HIS" "CHIS" }
+>> }
+>> 
+>> #
+>> # assume that most often proteins use HIE
+>> #
+>> NHIS = NHIE
+>> HIS = HIE
+>> CHIS = CHIE
+> 
+> 
+> # Load heme residue definition and parameters
+> loadAmberPrep mo.prepin
+Loading Prep file: ./mo.prepin
+(UNKNOWN ATOM TYPE: Mo)
+(UNKNOWN ATOM TYPE: OV)
+(UNKNOWN ATOM TYPE: HV)
+(UNKNOWN ATOM TYPE: HV)
+Loaded UNIT: MOW
+> loadAmberParams mo.frcmod
+Loading parameters: ./mo.frcmod
+Reading force field modification type file (frcmod)
+Reading title:
+# FF for Mo(IV) site in NAP active site, and modifications to Amber94 ff for polyphosphates
+(UNKNOWN ATOM TYPE: Mo)
+(UNKNOWN ATOM TYPE: S11)
+(UNKNOWN ATOM TYPE: S12)
+(UNKNOWN ATOM TYPE: S13)
+(UNKNOWN ATOM TYPE: S14)
+(UNKNOWN ATOM TYPE: OV)
+(UNKNOWN ATOM TYPE: SM)
+(UNKNOWN ATOM TYPE: HV)
+(UNKNOWN ATOM TYPE: O3)
+> 
+> # Create a unit containing just the HEM residue from the prep template
+> mow = sequence { MOW }
+Sequence: MOW
+> 
+> saveAmberParm mow mow.prmtop mow.inpcrd
+Checking Unit.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+The unperturbed charge of the unit (0.927983) is not integral.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Warning!
+The unperturbed charge of the unit (0.927983) is not zero.
+
+/home/robin/miniconda3/envs/DESPOT_v2/bin/teLeap: Note.
+Ignoring the warnings from Unit Checking.
+
+Building topology.
+Building atom parameters.
+Building bond parameters.
+Building angle parameters.
+Building proper torsion parameters.
+Building improper torsion parameters.
+old PREP-specified impropers:
+ total 0 improper torsions applied
+ 0 improper torsions in old prep form
+Building H-Bond parameters.
+Incorporating Non-Bonded adjustments.
+Not Marking per-residue atom chain types.
+Marking per-residue atom chain types.
+ (no restraints)
+> quit
+	Quit
+
+Exiting LEaP: Errors = 0; Warnings = 2; Notes = 1.
