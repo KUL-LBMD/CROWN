@@ -2,23 +2,26 @@
 
 **Curated Repository Of Well-resolved Non-covalent interactions**
 
-CROWN is a protein–ligand interaction database containing 153,005 carefully curated structures focused on well-resolved non-covalent interactions. The dataset was generated using a fully automated, open-source preprocessing pipeline built on [PLInder](https://github.com/plinder-org/plinder), documented and implemented within this repository.
+CROWN is a protein–ligand interaction database containing 141,261 carefully curated structures focused on well-resolved non-covalent interactions. 
+The dataset was generated using a fully automated, open-source preprocessing pipeline, documented and implemented within this repository.
 
-<img width="400" alt="CROWN overview" src="https://github.com/user-attachments/assets/a6583ed2-b564-4c28-9d49-80ca6704e2e4" />
+<img width="638" height="502" alt="image" src="https://github.com/user-attachments/assets/ad84c87e-3bef-48df-802a-20f18142f32e" />
 
 ## Resources
 
 - **Web interface**: Browse and search the full dataset interactively at [crown.lbmd.be](https://crown.lbmd.be)
-- **Bulk download**: Download the complete archive from [Zenodo](https://zenodo.org/records/19334311)
-- **This repository**: All scripts required to rebuild the CROWN dataset from scratch, along with metadata for all entries
+- **Bulk download**: Download the complete archive and its associated metadata from [Zenodo](https://zenodo.org/records/19334311)
+- **This repository**: All scripts required to rebuild the CROWN dataset from scratch.
 
 ## Installation
 
 Clone the repository and install the package in editable mode:
 
 ```bash
-git clone https://github.com/robin-poelmans/CROWN.git
+git clone https://github.com/KUL-LBMD/CROWN.git
 cd CROWN
+conda env create -f environment.yml
+conda activate CROWN
 pip install -e .
 ```
 
@@ -27,7 +30,7 @@ pip install -e .
 Preprocess the CROWN dataset:
 
 ```bash
-python scripts/preprocess_crown.py
+python scripts/process_crown.py
 ```
 
 ## Citation
