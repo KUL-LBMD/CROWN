@@ -2,6 +2,7 @@ name: CROWN
 
 channels:
   - conda-forge
+  - bioconda
   - defaults
 
 dependencies:
@@ -9,6 +10,7 @@ dependencies:
   - requests
   - urllib3
   - numpy
+  - numba
   - pandas
   - pyarrow
   - scikit-learn
@@ -20,13 +22,21 @@ dependencies:
   - tqdm
   - python-dotenv
   - pip
+  - setuptools
+  - wheel
+  - six
   - rdkit
   - openmm
   - openmmforcefields
   - openff-toolkit
   - pdbfixer
   - openbabel
+  - mmseqs2
+  - oddt
+  - h5py
+  - pytables
+  - biopython
   - pip:
-      - scikit-posthocs
       - biopandas
       - freesasa
+      - posebusters
