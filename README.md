@@ -10,7 +10,7 @@ The dataset was generated using a fully automated, open-source preprocessing pip
 ## Resources
 
 - **Web interface**: Browse and search the full dataset interactively at [crown.lbmd.be](https://crown.lbmd.be)
-- **Bulk download**: Download the complete archive and its associated metadata from [Zenodo](https://zenodo.org/records/19334311)
+- **Bulk download**: Download the complete archive and its associated metadata from [Zenodo](https://zenodo.org/records/20825315)
 - **This repository**: All scripts required to rebuild the CROWN dataset from scratch.
 
 ## Installation
