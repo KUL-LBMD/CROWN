@@ -5,7 +5,7 @@
 CROWN is a protein–ligand interaction database containing 141,261 carefully curated structures focused on well-resolved non-covalent interactions. 
 The dataset was generated using a fully automated, open-source preprocessing pipeline, documented and implemented within this repository.
 
-<img width="638" height="502" alt="image" src="https://github.com/user-attachments/assets/ad84c87e-3bef-48df-802a-20f18142f32e" />
+<img width="638" height="502" alt="image" src="https://github.com/user-attachments/assets/66afa888-fc0d-411d-bb1f-22361a3abd6c" />
 
 ## Resources
 
