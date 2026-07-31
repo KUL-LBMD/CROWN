@@ -696,3 +696,6 @@ def process_system(basename: str) -> None:
     _remove_chains_by_name(receptor[0], extracted_chain_names)
     receptor_path = f'{out_dir}/receptor.pdb'
     receptor.write_pdb(str(receptor_path))
+
+if __name__ == '__main__':
+	process_system('3fiv_D')

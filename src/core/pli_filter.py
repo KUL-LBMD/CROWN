@@ -316,7 +316,7 @@ def _make_rejection(filename: str, stage: str, detail: str, **metrics) -> Dict:
 	rec.update(metrics)
 	return rec
 
-def process_group(pdb_id: str, group):
+def process_group(pdb_id: str, group, uniprot_chains):
 	"""
 	Function for joblib parallellization.
 
@@ -354,7 +354,7 @@ def process_group(pdb_id: str, group):
 
 	for filename in group:
 
-		file_path = f'{DATA_DIR}/pdb/fixed_new/{filename}'
+		file_path = f'{DATA_DIR}/pdb/fixed/{filename}'
 		try:
 			prot_coords, lig_coords, prot_radii, lig_radii, lig_name = parse_pdb(file_path)
 		except Exception as exc:
@@ -387,6 +387,9 @@ def process_group(pdb_id: str, group):
 		# Check 1: RSR and RSCC
 		ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc, chain_set, n_lig_keys, n_pocket_keys = \
 			calculate_rsr_rscc(filename, res_info, clean_structure, lig_coords)
+
+		if not any(chain_id in uniprot_chains for chain_id in chain_set):
+			continue
 
 		if np.isnan([ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc]).any():
 			# Distinguish the two failure modes for the residue-key lookup:
@@ -487,7 +490,8 @@ def process_group(pdb_id: str, group):
 		taken_arrays.append(current_arr)
 		taken_filenames.append(filename[:-4])
 		entry_results = {
-			'filename': filename[:-4],
+			'basename': filename[:-4],
+			'pdb_id': filename[:4],
 			'lig_name': lig_name,
 			'sas_ratio': sas_ratio,
 			'ligand_rsr': ligand_rsr, 'ligand_rscc': ligand_rscc,
@@ -495,6 +499,8 @@ def process_group(pdb_id: str, group):
 			'chain_set': '-'.join(chain_set),
 		}
 		results.append(entry_results)
+
+	print(f'Entries retained: {len(results)} / {len(group)}')
 
 	return results, rejections
 
@@ -521,7 +527,7 @@ def _print_summary(total_seen: int, n_pass: int, stage_counts: Counter):
 	print('=' * 60 + '\n')
 
 
-def filter_structures():
+def filter_structures(num_cores = 1):
 	"""
 	Prune database based on 4 criteria:
 	1. RSR and RSCC of ligand and pocket residues
@@ -536,16 +542,26 @@ def filter_structures():
 	- prints a stage-by-stage summary to stdout.
 	"""
 
+	uniprot_df = pd.read_csv(f'{DATA_DIR}/metadata/uniprot_metadata.csv')
+
+	# One groupby in the parent instead of a linear scan per worker
+	chains_by_pdb = (
+		uniprot_df.groupby('pdb_id')['chain_id']
+		.apply(set)
+		.to_dict()
+	)
+
 	groups = defaultdict(list)
-	for filename in os.listdir(f'{DATA_DIR}/pdb/fixed_new'):
+	for filename in os.listdir(f'{DATA_DIR}/pdb/fixed'):
 		pdb_id = filename[:4]
 		groups[pdb_id].append(filename)
 
 	total_seen = sum(len(v) for v in groups.values())
 	print(f'[pli_filter] Found {total_seen} files in {len(groups)} PDB groups.')
 
-	worker_outputs = Parallel(n_jobs=64, verbose=10)(
-		delayed(process_group)(pdb_id, group) for pdb_id, group in groups.items()
+	worker_outputs = Parallel(n_jobs=num_cores, batch_size = 1, verbose=10)(
+		delayed(process_group)(pdb_id, group, chains_by_pdb.get(pdb_id, set()))
+		for pdb_id, group in groups.items()
 	)
 
 	flat_results = [x for results, _ in worker_outputs for x in results]

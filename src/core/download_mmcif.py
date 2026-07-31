@@ -137,7 +137,7 @@ def decompress_all():
 
 def flatten_mirror():
     """Move all .cif files into a single flat directory and remove empty subdirs."""
-    flat_dir = MIRROR_DIR / "all"
+    flat_dir = MIRROR_DIR / "raw"
     flat_dir.mkdir(exist_ok=True)
 
     cif_files = sorted(MIRROR_DIR.rglob("*.cif"))

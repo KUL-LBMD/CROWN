@@ -9,6 +9,9 @@ from biopandas.mol2 import PandasMol2
 from scipy.spatial import KDTree
 from joblib import Parallel, delayed
 
+import warnings
+warnings.filterwarnings('ignore')
+
 def _fix_mol2(path):
     with open(path) as f:
         lines = f.readlines()
@@ -104,12 +107,3 @@ def calculate_rmsd(subdir):
 
     except Exception as e:
         return {'basename': subdir, 'Ligand_RMSD': None, 'Pocket_RMSD': None, 'Scaffold_RMSD': None, 'Rebuilt_RMSD': None, 'H_RMSD': None}
-
-if __name__ == '__main__':
-
-    subdir_list = os.listdir(f'{DATA_DIR}/mol2_files')
-    list_of_dicts = Parallel(n_jobs = 64, verbose = 10)(delayed(calculate_rmsd)(subdir) for subdir in subdir_list)
-
-    df = pd.DataFrame(list_of_dicts)
-    df.to_csv(f'{DATA_DIR}/metadata/CROWN_rmsd.csv', index = False, float_format = '%.4f')
-

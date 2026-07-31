@@ -21,6 +21,8 @@ import random
 import os
 import shutil
 import traceback
+import gzip
+import requests
 from joblib import Parallel, delayed
 
 os.environ['OMP_NUM_THREADS'] = '1'
@@ -1335,6 +1337,15 @@ def fix_structures(num_cores = 1):
     num_cores [int]: Number of CPU's for parallel processing. Default value = 1
     """
 
+    # Initialize components.cif
+    url = "https://files.wwpdb.org/pub/pdb/data/monomers/components.cif.gz"
+    with requests.get(url, stream=True, timeout=600) as r:
+        r.raise_for_status()
+        r.raw.decode_content = True          # let requests handle any HTTP-level encoding
+        with gzip.GzipFile(fileobj=r.raw) as gz, open(f'{DATA_DIR}/mmCIF/ccd/components.cif', "wb") as f:
+            shutil.copyfileobj(gz, f, length=1 << 20)  # 1 MB chunks
+    _load_ccd_cache()
+
     pdb_list = [x[:4] for x in os.listdir(f'{DATA_DIR}/mmCIF/raw')]
     n_total = len(pdb_list)
 
@@ -1373,4 +1384,7 @@ def fix_structures(num_cores = 1):
             f.write(f"\n  --- Exception details ---\n")
             for exc in exceptions:
                 f.write(f"  {exc}\n")
+
+if __name__ == '__main__':
+	main('3oii')
 

@@ -6,6 +6,7 @@ import tempfile
 import numpy as np
 import string
  
+import pandas as pd
 from scipy.spatial import KDTree
 from pdbfixer import PDBFixer
 from openmmforcefields.generators import SystemGenerator
@@ -735,6 +736,47 @@ def _build_simulation(modeller, system):
 	simulation.context.setPositions(modeller.positions)
 	return simulation
 
+def minimize_focused_on_site(simulation, mobile_atoms,
+                             site_tol=10.0,        # kJ/mol/nm: target max net force on a pocket atom
+                             chunk_iters=200,      # L-BFGS iterations per round (de-facto minimum)
+                             max_rounds=25,
+                             global_tol=0.01,      # keep tight so each chunk does real work
+                             min_improvement=1e-2):
+    """
+    Minimize, but judge convergence on the mobile (binding-site) atoms only.
+    Runs minimizeEnergy in chunks and stops when the largest *net* per-atom
+    force on any mobile atom drops below site_tol — or when it stops improving.
+    """
+    mobile = np.array(sorted(mobile_atoms))
+    kJnm = unit.kilojoule_per_mole / unit.nanometer
+    prev_max = np.inf
+
+    for r in range(1, max_rounds + 1):
+        # Tight global_tol means OpenMM won't self-terminate on the diluted
+        # global metric; each chunk actually runs work.
+        simulation.minimizeEnergy(tolerance=global_tol * kJnm,
+                                   maxIterations=chunk_iters)
+
+        forces = (simulation.context.getState(getForces=True)
+                  .getForces(asNumpy=True).value_in_unit(kJnm))   # (N, 3)
+        max_site = float(np.linalg.norm(forces[mobile], axis=1).max())
+        logger.info(f"[focus-min] round {r:2d}  max|F|_site={max_site:8.3f} kJ/mol/nm")
+
+        if max_site < site_tol:
+            logger.info(f"Binding site converged in {r} rounds.")
+            return r
+        if prev_max - max_site < min_improvement:
+            logger.warning(
+                f"Site force stalled at {max_site:.3f} kJ/mol/nm (round {r}); "
+                f"stopping. This is a conditioning/geometry limit, not a lack "
+                f"of iterations — adding more won't help."
+            )
+            return r
+        prev_max = max_site
+
+    logger.warning(f"Hit max_rounds={max_rounds}; max|F|_site={max_site:.3f}")
+    return max_rounds
+
 def _save_outputs(modeller, minimized_positions, ligand_entries, out_dir):
 	"""Write minimized PDB and per-ligand SDFs."""
 	pdb_modeller = Modeller(modeller.topology, minimized_positions)
@@ -835,7 +877,7 @@ def refine_system(input_dir):
 		
 			# ------- Step 6: Build simulation, save snapshot, NaN check, minimize -------
 			simulation = _build_simulation(modeller, system)
-			simulation.minimizeEnergy(maxIterations=MINIMIZATION_STEPS)
+			minimize_focused_on_site(simulation, mobile_atoms)
 		
 			# ------- Step 7: Save outputs -------
 			state = simulation.context.getState(getEnergy=True, getPositions=True)
@@ -862,3 +904,6 @@ def safe_refine_system(input_dir):
 		print(f'{input_dir} - timed out after 3600s, skipping')
 	except Exception as e:
 		print(f'{input_dir} - unhandled error: {e}')
+
+if __name__ == '__main__':
+	safe_refine_system('3fiv_D')

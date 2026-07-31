@@ -7,7 +7,7 @@ from src.config import DATA_DIR
 
 GRAPHQL_URL = "https://data.rcsb.org/graphql"
 SEARCH_URL = "https://search.rcsb.org/rcsbsearch/v2/query"
-METADATA_CSV = Path(f'{DATA_DIR}/metadata/xray_structures.csv')
+METADATA_CSV = Path(f'{DATA_DIR}/metadata/pdb_metadata.csv')
 BATCH_SIZE = 1000  # GraphQL batch size
 
 def fetch_pdb_ids() -> set[str]:
@@ -82,4 +82,6 @@ def fetch_pdb_ids() -> set[str]:
             time.sleep(0.1)  # be polite
 
     print(f"  Wrote metadata to {METADATA_CSV}")
-    return {pid.lower() for pid in ids}
+
+if __name__ == '__main__':
+	fetch_pdb_ids()

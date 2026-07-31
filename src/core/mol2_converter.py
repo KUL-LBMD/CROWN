@@ -133,7 +133,7 @@ def process_system(subdir: str, tmp_dir: Path) -> None:
 # Entry point
 # ---------------------------------------------------------------------------
 
-def main(subdir):
+def convert_system(subdir):
 	with tempfile.TemporaryDirectory() as tmp:
 		tmp_dir = Path(tmp)
 
@@ -144,7 +144,5 @@ def main(subdir):
 			shutil.rmtree(f'{DATA_DIR}/mol2_files/{subdir}')
 			print(f'{subdir} - {e}')
 
-def convert_database():
-	df = pd.read_csv(f'{DATA_DIR}/metadata/pli_filter_pass.csv')
-	subdirs = df['filename'].tolist()
-	Parallel(n_jobs = 32, verbose = 10, backend = 'multiprocessing')(delayed(main)(subdir) for subdir in subdirs)
+if __name__ == '__main__':
+	convert_system('3fiv_D')
