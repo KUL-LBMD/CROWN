@@ -1,12 +1,16 @@
 from src.config import DATA_DIR
 
+import os
 import subprocess
 import json
 from itertools import combinations
 from collections import defaultdict
+from multiprocessing import get_context
 
 import numpy as np
 import pandas as pd
+import scipy.sparse as sp
+from scipy.sparse.csgraph import connected_components, minimum_spanning_tree
 from scipy.optimize import linear_sum_assignment
 from Bio.Align import PairwiseAligner, substitution_matrices
 from tqdm import tqdm
@@ -26,17 +30,54 @@ class SequenceComparer:
 
     Both metrics are anchored on complex A = the complex with fewer chains (ties broken
     lexicographically), so a pair (X, Y) gives the same result regardless of order.
+
+    Memory note
+    -----------
+    The chain-vs-chain fident matrix is kept SPARSE throughout. mmseqs2 only reports
+    chain pairs with a hit, so an n_chains x n_chains dense array (n^2 * 4 bytes, plus a
+    second copy when wrapped in a DataFrame for HDF5) is almost entirely zeros and is the
+    thing that gets OOM-killed. Instead we hold a nested dict {chain: {chain: fident}}
+    whose size scales with the number of hits, and build the tiny per-complex-pair blocks
+    on demand. The saved artifact is likewise a scipy CSR matrix (.npz) + an ids file
+    rather than a dense HDF5 table.
     """
 
     # BLOSUM62 alphabet; any other character is treated as unknown ('X') for alignment.
     _VALID_AA = set("ARNDCQEGHILKMFPSTWYVBZX")
 
-    def __init__(self, pocket_protein_gate=0.0):
+    def __init__(self, pocket_protein_gate=0.0, edge_floor=0.3,
+                 cluster_metric='protein_sim', cluster_threshold=0.5,
+                 compute_pocket=True):
         # If protein-level similarity for a pair is below this, skip the (expensive)
         # Smith-Waterman step and set pocket similarity to 0.0. 0.0 = compute everything
         # (exact). Raising it to ~0.2-0.3 is a big speed-up on diverse sets, at the cost
         # of missing the rare convergent-pocket case (low global identity, similar site).
         self.pocket_protein_gate = pocket_protein_gate
+
+        # If you only cluster on protein_sim, set this False to skip Smith-Waterman
+        # entirely (pocket metrics come back as NaN). SW is the dominant per-pair cost, so
+        # this is the single biggest speed-up when the pocket columns aren't needed.
+        self.compute_pocket = compute_pocket
+
+        # Persist only complex pairs whose best metric clears this floor. Set it to the
+        # LOWEST similarity threshold you might ever cluster at: a pair below the floor on
+        # every metric can never be an edge at any threshold >= floor, so dropping it
+        # cannot change a single cluster label. This is what lets us skip the dense
+        # n_complexes^2 matrices AND the full O(n^2) pair list. Lower floor = safer but
+        # bigger edge set; higher = leaner. 0.0 keeps everything (defeats the purpose).
+        self.edge_floor = edge_floor
+
+        # Metric + threshold used to write crown_cluster_labels.parquet in main(). You can
+        # re-cluster later at any metric and any threshold >= edge_floor straight from the
+        # saved edge parquet (see _single_linkage_labels) without recomputing anything.
+        self.cluster_metric = cluster_metric
+        self.cluster_threshold = cluster_threshold
+
+        # Metric + threshold used to write crown_cluster_labels.parquet in main(). You can
+        # re-cluster later at any metric and any threshold >= edge_floor straight from the
+        # saved edge parquet (see _single_linkage_labels) without recomputing anything.
+        self.cluster_metric = cluster_metric
+        self.cluster_threshold = cluster_threshold
 
     # ------------------------------------------------------------------ mmseqs2
 
@@ -49,25 +90,69 @@ class SequenceComparer:
         for cmd in cmds:
             subprocess.run(cmd, shell=True, check=True)
 
-    def _build_similarity_matrix(self, result_path, id_list):
-        id_to_idx = {uid: i for i, uid in enumerate(id_list)}
-        n = len(id_list)
-        mat = np.zeros((n, n), dtype=np.float32)
-        np.fill_diagonal(mat, 1.0)
+    def _build_similarity_lookup(self, result_path, chunksize=5_000_000):
+        """Stream the mmseqs2 result table into a sparse, symmetric lookup:
+        {chain: {chain: fident}}. Diagonal (self-identity = 1.0) is implicit and
+        handled at lookup/save time, so we never allocate an n_chains^2 array.
 
-        df = pd.read_csv(result_path, sep="\t", header=None,
-                         names=["query", "target", "fident"])
+        Peak memory is O(number of reported hits), not O(n_chains^2). The file is read
+        in chunks so even a very large .m8 never lands in memory all at once.
+        """
+        sim = defaultdict(dict)
+        reader = pd.read_csv(
+            result_path, sep="\t", header=None,
+            names=["query", "target", "fident"], usecols=[0, 1, 2],
+            dtype={"query": str, "target": str, "fident": np.float32},
+            chunksize=chunksize,
+        )
+        for chunk in reader:
+            q = chunk["query"].to_numpy()
+            t = chunk["target"].to_numpy()
+            f = chunk["fident"].to_numpy()
+            for qi, ti, fi in zip(q, t, f):
+                if qi == ti:
+                    continue  # self-hit; diagonal is implicit
+                fi = float(fi)
+                sim[qi][ti] = fi
+                sim[ti][qi] = fi  # symmetrize
+        return sim
 
-        # Map to indices, drop pairs not in our list
-        df["i"] = df["query"].map(id_to_idx)
-        df["j"] = df["target"].map(id_to_idx)
-        df = df.dropna(subset=["i", "j"]).astype({"i": int, "j": int})
+    def _save_chain_similarity(self, sim, chain_ids, npz_path, ids_path):
+        """Persist the chain-vs-chain fident matrix as a sparse CSR matrix (.npz) plus a
+        JSON list giving the row/column order. Reconstruct downstream with:
 
-        # Vectorized assignment (symmetrized)
-        mat[df["i"].values, df["j"].values] = df["fident"].values
-        mat[df["j"].values, df["i"].values] = df["fident"].values
+            import scipy.sparse as sp, json
+            mat = sp.load_npz(npz_path)                       # CSR, n_chains x n_chains
+            ids = json.load(open(ids_path))                   # chain order
+            # optional dense DataFrame (only if it fits!):
+            # import pandas as pd
+            # df = pd.DataFrame(mat.toarray(), index=ids, columns=ids)
+        """
+        idx = {cid: i for i, cid in enumerate(chain_ids)}
+        rows, cols, vals = [], [], []
+        for q, targets in sim.items():
+            qi = idx.get(q)
+            if qi is None:
+                continue
+            for t, fi in targets.items():
+                ti = idx.get(t)
+                if ti is None:
+                    continue
+                rows.append(qi)
+                cols.append(ti)
+                vals.append(fi)
 
-        return mat
+        n = len(chain_ids)
+        diag = np.arange(n, dtype=np.int32)
+        rows = np.concatenate([np.asarray(rows, dtype=np.int32), diag])
+        cols = np.concatenate([np.asarray(cols, dtype=np.int32), diag])
+        vals = np.concatenate([np.asarray(vals, dtype=np.float32),
+                               np.ones(n, dtype=np.float32)])
+
+        mat = sp.coo_matrix((vals, (rows, cols)), shape=(n, n)).tocsr()
+        sp.save_npz(npz_path, mat)
+        with open(ids_path, "w") as fh:
+            json.dump(chain_ids, fh)
 
     # ------------------------------------------------------------- sequence I/O
 
@@ -148,8 +233,19 @@ class SequenceComparer:
 
     # ------------------------------------------------------------- pair scoring
 
+    def _submatrix(self, chains_a, chains_b, sim):
+        """Build the small (nA x nB) fident block for two complexes directly from the
+        sparse lookup. Missing pairs default to 0.0; identical chain IDs to 1.0."""
+        nA, nB = len(chains_a), len(chains_b)
+        sub = np.zeros((nA, nB), dtype=np.float32)
+        for r, ca in enumerate(chains_a):
+            row = sim.get(ca, {})
+            for c, cb in enumerate(chains_b):
+                sub[r, c] = 1.0 if ca == cb else row.get(cb, 0.0)
+        return sub
+
     def _compare_pair(self, id1, id2, complex_to_chains, sequences,
-                      chain_idx, sim_matrix, binding_by_complex, aligner):
+                      sim, binding_by_complex, aligner):
         chains1 = complex_to_chains.get(id1, [])
         chains2 = complex_to_chains.get(id2, [])
         if not chains1 or not chains2:
@@ -162,9 +258,7 @@ class SequenceComparer:
             a_id, b_id, chains_a, chains_b = id2, id1, chains2, chains1
 
         # fident submatrix (A rows x B cols) and optimal one-to-one assignment.
-        a_rows = [chain_idx[c] for c in chains_a]
-        b_cols = [chain_idx[c] for c in chains_b]
-        sub = sim_matrix[np.ix_(a_rows, b_cols)]              # (nA, nB), nA <= nB
+        sub = self._submatrix(chains_a, chains_b, sim)        # (nA, nB), nA <= nB
         row_ind, col_ind = linear_sum_assignment(-sub)        # maximize total fident
         mapping = {chains_a[r]: chains_b[c] for r, c in zip(row_ind, col_ind)}
 
@@ -175,6 +269,9 @@ class SequenceComparer:
 
         if self.pocket_protein_gate > 0.0 and protein_score < self.pocket_protein_gate:
             return protein_score, 0.0, 0.0, 0.0
+
+        if not self.compute_pocket:
+            return protein_score, np.nan, np.nan, np.nan  # skip Smith-Waterman entirely
 
         # Pocket-level metrics, all normalized by |B_a| (PLINDER Appendix B.2). For each
         # A pocket residue, project it through the SW alignment to residue q in B:
@@ -211,22 +308,150 @@ class SequenceComparer:
 
         return protein_score, pocket_shared, pocket_identity, pocket_identity_shared
 
+    # --------------------------------------------------------------- clustering
+
+    @staticmethod
+    def _single_linkage_labels(edges, complex_ids, metric, threshold):
+        """Single-linkage cluster labels via connected components.
+
+        Single-linkage clustering at a similarity threshold t is identical to the
+        connected components of the graph whose edges are the complex pairs with
+        `metric` >= t. Complexes with no qualifying edge fall out as singletons because
+        every complex is present as a node. Returns an int label array aligned to
+        `complex_ids` (so labels[k] is the cluster of complex_ids[k]).
+
+        This touches only the above-threshold edges, so it stays cheap no matter how many
+        complexes there are, and can be re-run at any threshold >= edge_floor without
+        recomputing the pairwise scores.
+        """
+        idx = {c: i for i, c in enumerate(complex_ids)}
+        n = len(complex_ids)
+        sel = edges[edges[metric] >= threshold]
+        i = sel['id1'].map(idx).to_numpy().astype(np.int32)
+        j = sel['id2'].map(idx).to_numpy().astype(np.int32)
+        data = np.ones(len(i), dtype=np.int8)
+        graph = sp.coo_matrix((data, (i, j)), shape=(n, n))
+        _, labels = connected_components(graph, directed=False, connection='weak')
+        return labels
+
+    @staticmethod
+    def _build_mst(edges, complex_ids, metric):
+        """Single-linkage merge tree as a minimum spanning forest for one metric.
+
+        The single-linkage hierarchy is fully determined by the MST of the distance graph
+        (d = 1 - similarity): cutting the dendrogram at height h and taking connected
+        components of {edges with d <= h} are the same operation, and the MST preserves
+        every such cut (it is the maximum-bottleneck spanning tree). Storing the forest
+        (<= n_complexes - 1 edges) is therefore enough to relabel at ANY threshold, with
+        no n^2 matrix ever formed.
+
+        Returns a DataFrame [id1, id2, similarity] where `similarity` is the merge height
+        (the metric value at which the endpoints' components join). Because `edges` only
+        holds pairs with a metric >= edge_floor, the forest is valid for cuts at
+        thresholds >= edge_floor; lower cuts would need the dropped edges.
+        """
+        idx = {c: i for i, c in enumerate(complex_ids)}
+        n = len(complex_ids)
+        sim = edges[metric].to_numpy(dtype=np.float64)
+        keep = sim == sim  # drop NaN rows for this metric
+        i = edges['id1'].map(idx).to_numpy()[keep].astype(np.int32)
+        j = edges['id2'].map(idx).to_numpy()[keep].astype(np.int32)
+        sim = sim[keep]
+
+        # Minimise distance = 2 - sim (in [1, 2]): equivalent to maximising total
+        # similarity, so the MST is the single-linkage merge tree. The +1 shift over the
+        # usual 1 - sim keeps every weight strictly positive, so a perfect-similarity edge
+        # (sim = 1) is not stored as a sparse zero and silently dropped. Adding a constant
+        # to all edges leaves the MST unchanged (every spanning tree has n-1 edges).
+        dist = 2.0 - sim
+        graph = sp.coo_matrix((dist, (i, j)), shape=(n, n))
+        mst = minimum_spanning_tree(graph).tocoo()
+        return pd.DataFrame({
+            'id1': [complex_ids[r] for r in mst.row],
+            'id2': [complex_ids[c] for c in mst.col],
+            'similarity': 2.0 - mst.data,  # recover merge-height similarity
+        })
+
+    @staticmethod
+    def _labels_from_mst(mst, complex_ids, threshold):
+        """Flat single-linkage labels at `threshold`, cut from a saved merge forest:
+        connected components keeping only merges with similarity >= threshold. Nodes with
+        no surviving edge are singletons. Valid for threshold >= edge_floor. Returns an
+        int label array aligned to `complex_ids`. Cheap enough to call in a sweep."""
+        idx = {c: i for i, c in enumerate(complex_ids)}
+        n = len(complex_ids)
+        sel = mst[mst['similarity'] >= threshold]
+        i = sel['id1'].map(idx).to_numpy().astype(np.int32)
+        j = sel['id2'].map(idx).to_numpy().astype(np.int32)
+        data = np.ones(len(i), dtype=np.int8)
+        graph = sp.coo_matrix((data, (i, j)), shape=(n, n))
+        _, labels = connected_components(graph, directed=False, connection='weak')
+        return labels
+
+    # -------------------------------------------------------------- candidates
+
+    @staticmethod
+    def _candidate_pairs(sim, complex_to_chains, complex_ids):
+        """Complex-index pairs (i < j) that share at least one chain-chain mmseqs hit.
+
+        Any complex pair with no shared chain hit has an all-zero fident submatrix, so its
+        protein_sim is 0 and it can never be an edge -- scoring it is wasted work. This
+        turns the O(n_complexes^2) sweep into one bounded by the number of chain hits.
+
+        Exactness: this is exact for protein-level clustering. For pocket-level it assumes
+        pocket similarity implies detectable *sequence* similarity between the mapped
+        chains (the standard mmseqs-prefilter assumption). If you care about remote
+        homologs, raise mmseqs sensitivity (-s 7.5) and --max-seqs so no true hit is
+        missed; a truncated search here would drop real candidate pairs.
+
+        Returns (i_idx, j_idx) int64 arrays of unique upper-triangle pairs.
+        """
+        cidx = {c: k for k, c in enumerate(complex_ids)}
+        chain_to_cidx = {}
+        for comp, chs in complex_to_chains.items():
+            k = cidx.get(comp)
+            if k is not None:
+                for ch in chs:
+                    chain_to_cidx[ch] = k
+
+        n = len(complex_ids)
+        ii, jj = [], []
+        for c1, targets in sim.items():
+            a = chain_to_cidx.get(c1)
+            if a is None:
+                continue
+            for c2 in targets:
+                b = chain_to_cidx.get(c2)
+                if b is None or b == a:
+                    continue
+                lo, hi = (a, b) if a < b else (b, a)
+                ii.append(lo)
+                jj.append(hi)
+
+        if not ii:
+            return np.empty(0, np.int64), np.empty(0, np.int64)
+        # Dedup via a single linear key (i * n + j) to keep memory to two int arrays.
+        key = np.unique(np.asarray(ii, np.int64) * n + np.asarray(jj, np.int64))
+        return key // n, key % n
+
     # ---------------------------------------------------------------- pipeline
 
     def main(self):
         fasta_path = f'{DATA_DIR}/crown_sequences.fasta'
         result_path = f'{DATA_DIR}/crown_seqsim.m8'
 
-        self._run_mmseqs2(fasta_path, result_path)
+        #self._run_mmseqs2(fasta_path, result_path)
 
         # Canonical chain list from the FASTA (includes chains with no non-self hits).
         sequences = self._load_sequences(fasta_path)
         chain_ids = sorted(sequences.keys())
-        chain_idx = {cid: i for i, cid in enumerate(chain_ids)}
 
-        sim_matrix = self._build_similarity_matrix(result_path, chain_ids)
-        pd.DataFrame(sim_matrix, index=chain_ids, columns=chain_ids).to_hdf(
-            f'{DATA_DIR}/crown_chain_seqsim.h5', key='sim', complevel=5, complib='blosc')
+        # Sparse chain-vs-chain fident lookup (streamed) instead of a dense n^2 array.
+        sim = self._build_similarity_lookup(result_path)
+        self._save_chain_similarity(
+            sim, chain_ids,
+            npz_path=f'{DATA_DIR}/crown_chain_seqsim.npz',
+            ids_path=f'{DATA_DIR}/crown_chain_seqsim_ids.json')
 
         with open(f'{DATA_DIR}/binding_residues.json') as f:
             binding_residues = json.load(f)
@@ -245,39 +470,78 @@ class SequenceComparer:
                 by_chain[f"{comp}_{rec['chain']}"].append(rec['seq_index'])
             binding_by_complex[comp] = by_chain
 
-        aligner = self._make_aligner()
-
+        # Candidate generation: only complex pairs sharing a chain-chain mmseqs hit can be
+        # similar, so the ~n^2/2 exhaustive comparisons collapse to those few. Everything
+        # else is a guaranteed non-edge (all-zero fident -> protein_sim 0) and skipped.
         n = len(complex_ids)
-        protein_sim = np.eye(n, dtype=np.float32)
-        pk_shared = np.eye(n, dtype=np.float32)
-        pk_identity = np.eye(n, dtype=np.float32)
-        pk_identity_shared = np.eye(n, dtype=np.float32)
-        records = []  # tidy long-form rows, one per unordered pair (i < j)
+        cand_i, cand_j = self._candidate_pairs(sim, complex_to_chains, complex_ids)
+        print(f"[info] scoring {len(cand_i):,} candidate pairs "
+              f"(exhaustive would be {n * (n - 1) // 2:,})")
 
-        total_pairs = n * (n - 1) // 2
-        for i, j in tqdm(combinations(range(n), 2), total=total_pairs,
-                         desc="Comparing complexes", unit="pair"):
-            prot, sh, ident, ident_sh = self._compare_pair(
-                complex_ids[i], complex_ids[j], complex_to_chains, sequences,
-                chain_idx, sim_matrix, binding_by_complex, aligner)
-            protein_sim[i, j] = protein_sim[j, i] = prot
-            pk_shared[i, j] = pk_shared[j, i] = sh
-            pk_identity[i, j] = pk_identity[j, i] = ident
-            pk_identity_shared[i, j] = pk_identity_shared[j, i] = ident_sh
-            records.append((complex_ids[i], complex_ids[j], prot, sh, ident, ident_sh))
+        # Parallel scoring. Hungarian + Smith-Waterman per pair is embarrassingly parallel;
+        # the big read-only inputs (sequences, sim, binding) are shared with workers via
+        # fork (copy-on-write) rather than pickled per task. Requires a fork-capable OS
+        # (Linux). Each worker builds its own aligner. Set compute_pocket=False to drop SW.
+        _SHARED.update(comparer=self, complex_to_chains=complex_to_chains,
+                       sequences=sequences, sim=sim, complex_ids=complex_ids,
+                       binding_by_complex=binding_by_complex,
+                       aligner=self._make_aligner())
 
-        for mat, name in [(protein_sim, 'protein_sim'),
-                          (pk_shared, 'pocket_shared'),
-                          (pk_identity, 'pocket_identity'),
-                          (pk_identity_shared, 'pocket_identity_shared')]:
-            pd.DataFrame(mat, index=complex_ids, columns=complex_ids).to_hdf(
-                f'{DATA_DIR}/crown_{name}.h5', key='sim', complevel=5, complib='blosc')
+        n_workers = 96
+        records = []
+        ctx = get_context('fork')
+        with ctx.Pool(processes=n_workers) as pool:
+            work = zip(cand_i.tolist(), cand_j.tolist())
+            for id1, id2, prot, sh, ident, ident_sh in tqdm(
+                    pool.imap_unordered(_compare_worker, work, chunksize=256),
+                    total=len(cand_i), desc="Scoring candidate pairs", unit="pair"):
+                vals = [v for v in (prot, sh, ident, ident_sh) if v == v]  # drop NaN
+                if vals and max(vals) >= self.edge_floor:
+                    records.append((id1, id2, prot, sh, ident, ident_sh))
+        print(f"[info] kept {len(records):,} edges (best metric >= {self.edge_floor})")
 
-        # Tidy long-form table (one row per unordered pair) for threshold-based
-        # filtering / dedup. Requires a parquet engine (pyarrow or fastparquet).
-        pd.DataFrame(records, columns=['id1', 'id2', 'protein_sim', 'pocket_shared',
-                                       'pocket_identity', 'pocket_identity_shared']).to_parquet(
-            f'{DATA_DIR}/crown_pair_similarity.parquet', index=False)
+        # Sparse edge list: everything needed to cluster at any metric/threshold >= floor.
+        edges = pd.DataFrame(records, columns=['id1', 'id2', 'protein_sim', 'pocket_shared',
+                                               'pocket_identity', 'pocket_identity_shared'])
+        edges.to_parquet(f'{DATA_DIR}/crown_pair_similarity.parquet', index=False)
+        with open(f'{DATA_DIR}/crown_complex_ids.json', 'w') as fh:
+            json.dump(complex_ids, fh)  # full node list, needed to recover singletons
+
+        # Minimum spanning forest per metric = the single-linkage merge tree. Each is at
+        # most n_complexes - 1 rows, so all four together are tiny, and they let you
+        # relabel at ANY threshold >= edge_floor without recomputing pairwise scores.
+        metrics = ['protein_sim', 'pocket_shared',
+                   'pocket_identity', 'pocket_identity_shared']
+        forests = []
+        for m in metrics:
+            forest = self._build_mst(edges, complex_ids, m)
+            forest.insert(0, 'metric', m)
+            forests.append(forest)
+        mst = pd.concat(forests, ignore_index=True)
+        mst.to_parquet(f'{DATA_DIR}/crown_mst.parquet', index=False)
+
+        # Flat labels at the configured metric/threshold, cut straight from the forest.
+        labels = self._labels_from_mst(
+            mst[mst['metric'] == self.cluster_metric], complex_ids, self.cluster_threshold)
+        pd.DataFrame({'complex_id': complex_ids, 'cluster': labels}).to_parquet(
+            f'{DATA_DIR}/crown_cluster_labels.parquet', index=False)
+        print(f"[info] {int(labels.max()) + 1} clusters at "
+              f"{self.cluster_metric} >= {self.cluster_threshold}")
+
+
+_SHARED = {}  # populated in the parent, inherited by workers via fork (copy-on-write)
+
+
+def _compare_worker(pair):
+    """Score one candidate complex pair (given as complex indices). Reads the shared
+    read-only inputs inherited from the parent process; returns the tidy edge row."""
+    i, j = pair
+    ids = _SHARED['complex_ids']
+    id1, id2 = ids[i], ids[j]
+    prot, sh, ident, ident_sh = _SHARED['comparer']._compare_pair(
+        id1, id2, _SHARED['complex_to_chains'], _SHARED['sequences'],
+        _SHARED['sim'], _SHARED['binding_by_complex'], _SHARED['aligner'])
+    return id1, id2, prot, sh, ident, ident_sh
 
 
 if __name__ == '__main__':

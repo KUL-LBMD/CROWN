@@ -9,10 +9,7 @@ Workflow:
   3. Remove files that don't match the query
 """
 
-import json
-import os
 import subprocess
-import sys
 from pathlib import Path
 import requests
 
@@ -36,7 +33,7 @@ def fetch_pdb_ids() -> set[str]:
                     "parameters": {
                         "attribute": "exptl.method",
                         "operator": "exact_match",
-                        "value": "X-RAY DIFFRACTION",
+                        "value": "ELECTRON MICROSCOPY",
                     },
                 },
                 {
@@ -53,7 +50,7 @@ def fetch_pdb_ids() -> set[str]:
         "return_type": "entry",
         "request_options": {"return_all_hits": True},
     }
-
+    
     resp = requests.post("https://search.rcsb.org/rcsbsearch/v2/query", json=query)
     resp.raise_for_status()
     data = resp.json()
@@ -163,7 +160,7 @@ def flatten_mirror():
 def download_mmcif():
     ids = fetch_pdb_ids()
 
-    id_file = Path(f'{DATA_DIR}/metadata/xray_lt3A_pdb_ids.txt')
+    id_file = Path(f'{DATA_DIR}/metadata/cryo_lt3A_pdb_ids.txt')
     id_file.write_text("\n".join(sorted(ids)))
     print(f"  PDB IDs saved to {id_file}")
 

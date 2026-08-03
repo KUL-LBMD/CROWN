@@ -1,8 +1,4 @@
 import pandas as pd
-import os
-import sys
-import re
-import gzip
 import requests
 import urllib.request
 from collections import defaultdict

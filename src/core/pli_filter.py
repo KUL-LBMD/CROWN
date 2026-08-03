@@ -76,17 +76,18 @@ def get_validation_data(pdb_id: str):
 
 	results = {}
 
+	entry = root.find(f"{namespace}Entry")
+	global_q = entry.attrib.get('Q-score')
+
 	for res in root.iter(f"{namespace}ModelledSubgroup"):
 		chain_id = res.get('said')
 		res_name = res.get('resname')
 		res_num = res.get('resnum')
-		rsr = res.get('rsr')
-		rscc = res.get('rscc')
+		q = res.get('Q_score')
 
-		if res_name != 'HOH' and rsr is not None and rscc is not None:
-			results[(chain_id, res_name, res_num)] = (float(rsr), float(rscc))
+		results[(chain_id, res_name, res_num)] = float(q)
 
-	return results
+	return global_q, results
 
 def icp(mobile, target, max_iters = 100, tolerance = 1e-6):
 	"""
@@ -236,7 +237,7 @@ def parse_pdb(file_path):
 ### Core functions
 #-----------------
 
-def calculate_rsr_rscc(basename: str, res_info: Dict[Tuple[str, str, str], Tuple[float, float]], structure: gemmi.Structure, ligand_coords: np.ndarray):
+def calculate_rsr_rscc(basename: str, res_info: Dict[Tuple[str, str, str], float], structure: gemmi.Structure, ligand_coords: np.ndarray):
 	"""
 	Calculate mean RSR and RSCC of given residues
 
@@ -276,12 +277,10 @@ def calculate_rsr_rscc(basename: str, res_info: Dict[Tuple[str, str, str], Tuple
 			pocket_keys.add((cra.chain.name, cra.residue.name, str(cra.residue.seqid)))
 			chain_set.add(cra.chain.name)
 
-	ligand_rsr = _safe_mean([res_info[x][0] if x in res_info else np.nan for x in ligand_keys])
-	ligand_rscc = _safe_mean([res_info[x][1] if x in res_info else np.nan for x in ligand_keys])
-	pocket_rsr = _safe_mean([res_info[x][0] if x in res_info else np.nan for x in pocket_keys])
-	pocket_rscc = _safe_mean([res_info[x][1] if x in res_info else np.nan for x in pocket_keys])
+	ligand_q = _safe_mean([res_info[x] if x in res_info else np.nan for x in ligand_keys])
+	pocket_q = _safe_mean([res_info[x] if x in res_info else np.nan for x in pocket_keys])
 
-	return ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc, chain_set, len(ligand_keys), len(pocket_keys)
+	return ligand_q, pocket_q, chain_set, len(ligand_keys), len(pocket_keys)
 
 def calculate_delta_sas(prot_coords, lig_coords, prot_radii, lig_radii):
 	"""
@@ -349,7 +348,7 @@ def process_group(pdb_id: str, group, uniprot_chains):
 			))
 		return results, rejections
 
-	res_info = get_validation_data(pdb_id)
+	global_q, res_info = get_validation_data(pdb_id)
 	validation_available = isinstance(res_info, dict) and len(res_info) > 0
 
 	for filename in group:
@@ -385,13 +384,13 @@ def process_group(pdb_id: str, group, uniprot_chains):
 			continue
 
 		# Check 1: RSR and RSCC
-		ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc, chain_set, n_lig_keys, n_pocket_keys = \
+		ligand_q, pocket_q, chain_set, n_lig_keys, n_pocket_keys = \
 			calculate_rsr_rscc(filename, res_info, clean_structure, lig_coords)
 
 		if not any(chain_id in uniprot_chains for chain_id in chain_set):
 			continue
 
-		if np.isnan([ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc]).any():
+		if np.isnan([ligand_q, pocket_q]).any():
 			# Distinguish the two failure modes for the residue-key lookup:
 			# either no keys were found at all, or none of the keys were in
 			# the validation report.
@@ -403,29 +402,7 @@ def process_group(pdb_id: str, group, uniprot_chains):
 			rejections.append(_make_rejection(
 				filename, 'validation_missing_residues', detail,
 				lig_name=lig_name,
-				ligand_rsr=ligand_rsr, ligand_rscc=ligand_rscc,
-				pocket_rsr=pocket_rsr, pocket_rscc=pocket_rscc,
 				n_ligand_keys=n_lig_keys, n_pocket_keys=n_pocket_keys,
-			))
-			continue
-
-		if ligand_rsr > 0.3 or pocket_rsr > 0.3 or ligand_rscc < 0.8 or pocket_rscc < 0.8:
-			# Build a precise reason listing which thresholds were violated
-			fails = []
-			if ligand_rsr > 0.3:
-				fails.append(f'ligand_rsr={ligand_rsr:.3f} > 0.3')
-			if pocket_rsr > 0.3:
-				fails.append(f'pocket_rsr={pocket_rsr:.3f} > 0.3')
-			if ligand_rscc < 0.8:
-				fails.append(f'ligand_rscc={ligand_rscc:.3f} < 0.8')
-			if pocket_rscc < 0.8:
-				fails.append(f'pocket_rscc={pocket_rscc:.3f} < 0.8')
-			rejections.append(_make_rejection(
-				filename, 'rsr_rscc_threshold',
-				'; '.join(fails),
-				lig_name=lig_name,
-				ligand_rsr=ligand_rsr, ligand_rscc=ligand_rscc,
-				pocket_rsr=pocket_rsr, pocket_rscc=pocket_rscc,
 			))
 			continue
 
@@ -440,8 +417,6 @@ def process_group(pdb_id: str, group, uniprot_chains):
 				f'num_contacts={num_contacts} < 10 (within {CONTACT_RADIUS} Å)',
 				lig_name=lig_name,
 				num_contacts=num_contacts,
-				ligand_rsr=ligand_rsr, ligand_rscc=ligand_rscc,
-				pocket_rsr=pocket_rsr, pocket_rscc=pocket_rscc,
 			))
 			continue
 
@@ -453,8 +428,6 @@ def process_group(pdb_id: str, group, uniprot_chains):
 				f'sas_ratio={sas_ratio:.3f} < 0.4',
 				lig_name=lig_name,
 				sas_ratio=sas_ratio, num_contacts=num_contacts,
-				ligand_rsr=ligand_rsr, ligand_rscc=ligand_rscc,
-				pocket_rsr=pocket_rsr, pocket_rscc=pocket_rscc,
 			))
 			continue
 
@@ -481,8 +454,6 @@ def process_group(pdb_id: str, group, uniprot_chains):
 				maxdev=redundant_maxdev,
 				redundant_against=redundant_against,
 				sas_ratio=sas_ratio, num_contacts=num_contacts,
-				ligand_rsr=ligand_rsr, ligand_rscc=ligand_rscc,
-				pocket_rsr=pocket_rsr, pocket_rscc=pocket_rscc,
 			))
 			continue
 
@@ -494,8 +465,9 @@ def process_group(pdb_id: str, group, uniprot_chains):
 			'pdb_id': filename[:4],
 			'lig_name': lig_name,
 			'sas_ratio': sas_ratio,
-			'ligand_rsr': ligand_rsr, 'ligand_rscc': ligand_rscc,
-			'pocket_rsr': pocket_rsr, 'pocket_rscc': pocket_rscc,
+			'global_q': global_q,
+			'ligand_q': ligand_q,
+			'pocket_q': pocket_q,
 			'chain_set': '-'.join(chain_set),
 		}
 		results.append(entry_results)
@@ -579,7 +551,6 @@ def filter_structures(num_cores = 1):
 	# present in a row will be left blank by pandas, which is what we want.
 	preferred_order = [
 		'filename', 'stage', 'detail', 'lig_name',
-		'ligand_rsr', 'ligand_rscc', 'pocket_rsr', 'pocket_rscc',
 		'n_ligand_keys', 'n_pocket_keys',
 		'num_contacts', 'sas_ratio',
 		'maxdev', 'redundant_against',
