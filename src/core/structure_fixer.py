@@ -23,6 +23,8 @@ import shutil
 import traceback
 import gzip
 import requests
+import multiprocessing as mp
+import queue as _queue_mod
 from joblib import Parallel, delayed
 
 os.environ['OMP_NUM_THREADS'] = '1'
@@ -66,6 +68,12 @@ CHAIN_RADIUS = 4.0
 SHELL_RADIUS = 6.0
 
 MAX_TERMINAL_EXTENSION = 3
+
+# Hard wall-clock limit for a single main() invocation. Structures that exceed
+# this are almost certainly wedged inside a native PDBFixer/OpenMM call that will
+# never return, so each entry runs in a disposable child process that gets killed
+# once the deadline passes (see main() below).
+MAIN_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
 
 ### Helper functions ###
 #-----------------------
@@ -1218,7 +1226,7 @@ def check_structure(basename):
 ### Core workflow ###
 #--------------------
 
-def main(pdb_id):
+def _process_pdb(pdb_id):
     """
     Main clean-up of mmCIF files.
     This workflow goes through the following steps:
@@ -1327,6 +1335,87 @@ def main(pdb_id):
 
     return flags
 
+
+# Prefer fork so the child inherits the already-parsed CCD cache and imported
+# native libraries in memory — reloading components.cif per task would be
+# prohibitively expensive. Fall back to spawn where fork is unavailable
+# (e.g. Windows), in which case the child reloads the cache from disk.
+try:
+    _MP_CONTEXT = mp.get_context('fork')
+except ValueError:  # pragma: no cover - non-fork platforms
+    _MP_CONTEXT = mp.get_context('spawn')
+
+
+def _empty_flags(failure_reason):
+    """Flags dict matching _process_pdb's contract, for the wrapper's own paths."""
+    return {
+        'has_missing_atoms_in_shell': False,
+        'has_modified_residues_in_shell': False,
+        'has_branched_residues_in_shell': False,
+        'failure_reason': failure_reason,
+    }
+
+
+def _worker_target(result_queue, pdb_id):
+    """Run the real processing in a child process and ship the result back."""
+    try:
+        result_queue.put(_process_pdb(pdb_id))
+    except Exception as e:  # mirror _process_pdb's own failure contract
+        result_queue.put(_empty_flags(f'exception: {type(e).__name__}: {e}'))
+
+
+def main(pdb_id):
+    """
+    Timeout wrapper around _process_pdb.
+
+    Each PDB entry is processed in a disposable child process. If it runs longer
+    than MAIN_TIMEOUT_SECONDS the child is terminated (SIGTERM, escalating to
+    SIGKILL) and reported as a 'timeout' failure. This prevents a single
+    pathological structure — typically one stuck inside a native PDBFixer/OpenMM
+    call — from wedging a joblib worker for hours.
+
+    The return value is always a flags dict with the same schema as
+    _process_pdb, so fix_structures' aggregation is unaffected.
+
+    Parameters
+    ----------
+    pdb_id [str]: PDB ID of entry
+    """
+
+    result_queue = _MP_CONTEXT.Queue()
+    proc = _MP_CONTEXT.Process(target=_worker_target, args=(result_queue, pdb_id))
+    proc.start()
+
+    # Block up to the deadline. join() returns early if the child exits on its
+    # own (success, handled failure, or a crash such as a segfault / OOM kill).
+    proc.join(MAIN_TIMEOUT_SECONDS)
+
+    if proc.is_alive():
+        # Deadline hit and still running: kill it, escalating if SIGTERM is
+        # swallowed by a native call.
+        proc.terminate()
+        proc.join(30)
+        if proc.is_alive():
+            proc.kill()
+            proc.join()
+        print(f'{pdb_id} - timed out after {MAIN_TIMEOUT_SECONDS // 60} min, killed')
+        return _empty_flags('timeout')
+
+    # Child exited on its own. A clean exit (code 0) always queued a result via
+    # _worker_target — retrieve it (short blocking get avoids any pipe-flush race
+    # right after exit). A non-zero exit means the child died without returning,
+    # e.g. a native segfault (139) or an OOM kill (137); report that immediately.
+    if proc.exitcode == 0:
+        try:
+            return result_queue.get(timeout=10)
+        except _queue_mod.Empty:
+            print(f'{pdb_id} - child exited cleanly but returned no result')
+            return _empty_flags('child_crash: no_result')
+    else:
+        print(f'{pdb_id} - child crashed (exitcode={proc.exitcode})')
+        return _empty_flags(f'child_crash: exitcode={proc.exitcode}')
+
+
 def fix_structures(num_cores = 1):
     """
     Runs through all dataframe entries and converts mmCIF to semi-processed PDB
@@ -1346,45 +1435,5 @@ def fix_structures(num_cores = 1):
             shutil.copyfileobj(gz, f, length=1 << 20)  # 1 MB chunks
     _load_ccd_cache()
 
-    pdb_list = [x[:4] for x in os.listdir(f'{DATA_DIR}/mmCIF/raw')]
-    n_total = len(pdb_list)
-
-    results = Parallel(n_jobs = num_cores, verbose = 10)(delayed(main)(pdb_id) for pdb_id in pdb_list)
-
-    # Aggregate failure reasons
-    n_success = sum(1 for r in results if r['failure_reason'] is None)
-    failure_counts = defaultdict(int)
-    for r in results:
-        reason = r['failure_reason']
-        if reason is not None:
-            # Group exceptions under a common key for the summary table,
-            # but keep individual messages for the detailed log
-            key = reason if not reason.startswith('exception:') else 'exception'
-            failure_counts[key] += 1
-
-    with open(f'{DATA_DIR}/corrections.txt', 'w') as f:
-        f.write(f"\n{'='*60}\n")
-        f.write(f"  Structure fixer — summary ({n_total} input systems)\n")
-        f.write(f"{'='*60}\n\n")
-
-        f.write(f"  Successfully written          : {n_success:>6}  ({100*n_success/n_total:.1f}%)\n")
-        f.write(f"  Failed                        : {n_total - n_success:>6}  ({100*(n_total - n_success)/n_total:.1f}%)\n\n")
-
-        f.write(f"  --- Failure breakdown ---\n")
-        f.write(f"  Null elements in topology     : {failure_counts.get('null_elements_in_topology', 0):>6}\n")
-        f.write(f"  Unknown residues (UNK/UNL)     : {failure_counts.get('unknown_residue', 0):>6}\n")
-        f.write(f"  Modified residues in shell     : {failure_counts.get('modified_residues_in_shell', 0):>6}\n")
-        f.write(f"  Missing atoms in shell         : {failure_counts.get('missing_atoms_in_shell', 0):>6}\n")
-        f.write(f"  Branched residues in shell     : {failure_counts.get('branched_residues_in_shell', 0):>6}\n")
-        f.write(f"  Uncaught exceptions            : {failure_counts.get('exception', 0):>6}\n\n")
-
-        # Log individual exceptions for debugging
-        exceptions = [(r['failure_reason']) for r in results if r['failure_reason'] and r['failure_reason'].startswith('exception:')]
-        if exceptions:
-            f.write(f"\n  --- Exception details ---\n")
-            for exc in exceptions:
-                f.write(f"  {exc}\n")
-
 if __name__ == '__main__':
 	main('3oii')
-

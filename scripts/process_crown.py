@@ -5,7 +5,7 @@ from joblib import Parallel, delayed
 
 from src.config import DATA_DIR
 from src.core.download_mmcif import download_mmcif
-from src.core.get_pdb_metadata import fetch_pdb_ids
+from src.core.get_pdb_metadata import get_pdb_metadata
 from src.core.structure_fixer import fix_structures
 from src.core.pli_filter import filter_structures
 from src.core.system_builder import process_system
@@ -35,23 +35,27 @@ new_subdirs = [f'{DATA_DIR}/mmCIF', f'{DATA_DIR}/mmCIF/raw', f'{DATA_DIR}/mmCIF/
 for subdir in new_subdirs:
 	os.makedirs(subdir, exist_ok = True)
 
-print('Running step 1: downloading mmCIF files and metadata')
-download_mmcif()
-fetch_pdb_ids()
-get_protein_metadata()
+#print('Running step 1: downloading mmCIF files and metadata')
+#download_mmcif()
+
+#for subdir in new_subdirs:
+#	os.makedirs(subdir, exist_ok = True)
+
+#get_pdb_metadata()
+#get_protein_metadata()
 
 ### Step 2: Clean up structures and build PLI systems ###
-fix_structures(num_cores = NUM_CORES)
+#fix_structures(num_cores = NUM_CORES)
 
 ### Step 3: Run PLI filter ###
-print('Step 3: starting PLI filter')
-filter_structures(num_cores = NUM_CORES)
+#print('Step 3: starting PLI filter')
+#filter_structures(num_cores = NUM_CORES)
 
 ### Step 4: Prepare systems for energy minimization ###
-print('Step 4: Preparing energy minimization')
-df = pd.read_csv(f'{DATA_DIR}/metadata/pli_filter_pass.csv')
-basename_list = df['basename'].tolist()
-Parallel(n_jobs = NUM_CORES, verbose = 10)(delayed(process_system)(basename) for basename in basename_list)
+#print('Step 4: Preparing energy minimization')
+#df = pd.read_csv(f'{DATA_DIR}/metadata/pli_filter_pass.csv')
+#basename_list = df['basename'].tolist()
+#Parallel(n_jobs = NUM_CORES, verbose = 10)(delayed(process_system)(basename) for basename in basename_list)
 
 ### Step 5: Run energy minimization ###
 print('Step 5: Starting energy minimization')
@@ -92,9 +96,9 @@ merge_metadata()
 ### Step 8: Hierarchical clustering ###
 print('Step 8: clustering')
 cluster_plec(num_cores = NUM_CORES)
-cluster_mmseqs()
+#cluster_mmseqs()
 cluster_ecfp4()
-merge_clusters()
+#merge_clusters()
 
 ### Step 9: Remove bad complexes ###
 df = pd.read_parquet(f'{DATA_DIR}/metadata/CROWN_metadata.parquet')

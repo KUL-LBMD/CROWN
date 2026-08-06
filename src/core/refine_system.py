@@ -25,6 +25,9 @@ import xml.etree.ElementTree as ET
  
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+import warnings
+warnings.filterwarnings("ignore", message="Preset charges were provided")
  
 # Restrict sqm/antechamber to 1 thread per worker
 os.environ['OMP_NUM_THREADS'] = '1'
@@ -328,47 +331,6 @@ def _add_bonds(topology, resname_set, bond_templates):
         )
     logger.info(f"_add_bonds: added {n_added} bond(s) from forcefield templates")
 
-def _add_seqres_with_caps(input_pdb: str, output_pdb: str):
-	"""
-	Add SEQRES records with ACE/NME caps to a PDB file.
-	PDBFixer will then detect these as 'missing' and build them.
-	"""
-
-	# First, read the structure to get chain sequences
-	pdb = PDBFile(input_pdb)
-
-	# Build sequence for each chain
-	chain_sequences = {}
-	for chain in pdb.topology.chains():
-		residues = list(chain.residues())
-		protein_residues = [r for r in residues if r.name in STANDARD_AMINO_ACIDS]
-
-		if protein_residues:
-			seq = [r.name for r in protein_residues]
-			# Add ACE at start, NME at end
-			if protein_residues[0].name != 'ACE':
-				seq = ['ACE'] + seq
-			if protein_residues[-1].name != 'NME':
-				seq = seq + ['NME']
-			chain_sequences[chain.id] = seq
-
-	# Now write modified PDB with SEQRES records
-	with open(input_pdb, 'r') as f_in, open(output_pdb, 'w') as f_out:
-		# First write SEQRES records for each chain
-		for chain_id, seq in chain_sequences.items():
-			# SEQRES records: max 13 residues per line
-			for i in range(0, len(seq), 13):
-				chunk = seq[i:i+13]
-				line_num = (i // 13) + 1
-				seqres_line = f"SEQRES {line_num:>3} {chain_id} {len(seq):>4}  "
-				seqres_line += " ".join(f"{res:>3}" for res in chunk)
-				f_out.write(seqres_line + '\n')
-
-		# Then copy the rest of the file (skip existing SEQRES lines)
-		for line in f_in:
-			if not line.startswith('SEQRES'):
-				f_out.write(line)
-
 def _cap_dna_termini(input_pdb: str, output_pdb: str):
     """
     Rename DNA terminal residues to match Amber OL21 templates and strip
@@ -427,10 +389,6 @@ def _prepare_amber(tmp_dir, pdb_path, special_residues):
 	# DNA terminal renaming + 5'-phosphate stripping
 	capped_path = f'{tmp_dir}/{basename}_dnacap.pdb'
 	_cap_dna_termini(pdb_path, capped_path)
-
-	# Add SEQRES with caps
-	seqres_path = f'{tmp_dir}/{basename}_seqres.pdb'
-	_add_seqres_with_caps(capped_path, seqres_path)
 
 	Modeller.loadHydrogenDefinitions(f'{DATA_DIR}/custom_xml/protonation/special_residues_amber.xml')
 
@@ -512,84 +470,6 @@ def _get_rebuilt_atom_indices(original_pdb_path, topology, positions, tol_nm=0.0
 
 	return rebuilt_atom_indices
 
-def _strip_distant_waters(modeller, ligand_molecules, cutoff_nm=0.4):
-    """
-    Delete waters whose oxygen is further than `cutoff_nm` from any ligand
-    or metallocofactor heavy atom. Operates on `modeller` in place.
- 
-    Reference set:
-      * heavy atoms of every Molecule in `ligand_molecules` (from .sdf inputs)
-      * heavy atoms of every residue in the modeller topology whose name is in
-        METALLOCOFACTORS (HEM, MGD, SF4) - these enter via the receptor PDB
-        rather than as separate SDFs and would otherwise be invisible here.
- 
-    Parameters
-    ----------
-    modeller : openmm.app.Modeller
-    ligand_molecules : iterable of openff.toolkit.Molecule
-        Ligands with at least one conformer set; positions read from
-        conformers[0] (in Å).
-    cutoff_nm : float
-        Distance cutoff in nm. Default 0.4 nm = 4 Å.
- 
-    Returns
-    -------
-    int
-        Number of water residues removed.
-    """
-    # Modeller positions in nm (used for both cofactor refs and water queries)
-    positions = np.array(
-        [p.value_in_unit(unit.nanometer) for p in modeller.positions]
-    )
- 
-    # Collect reference heavy-atom positions in nm
-    ref_positions = []
- 
-    # (1) SDF-derived ligands
-    for mol in ligand_molecules:
-        coords_nm = mol.conformers[0].to(openff_unit.nanometer).magnitude
-        for atom, xyz in zip(mol.atoms, coords_nm):
-            if atom.atomic_number != 1:
-                ref_positions.append(xyz)
-
-    # (2) Metallocofactors already in the receptor topology
-    n_cofactor_atoms = 0
-    for residue in modeller.topology.residues():
-        if residue.name in STANDARD_AMINO_ACIDS or residue.name in WATER_NAMES:
-            continue
-        for atom in residue.atoms():
-            if atom.element.symbol != 'H':
-                ref_positions.append(positions[atom.index])
-                n_cofactor_atoms += 1
-    if n_cofactor_atoms:
-        logger.info(
-            f"_strip_distant_waters: seeded KDTree with {n_cofactor_atoms} "
-            f"metallocofactor heavy atom(s) in addition to SDF ligand atoms"
-        )
- 
-    if not ref_positions:
-        return 0
- 
-    tree = KDTree(np.asarray(ref_positions))
- 
-    waters_to_remove = []
-    for residue in modeller.topology.residues():
-        if residue.name not in WATER_NAMES:
-            continue
-        oxygen = next(
-            (a for a in residue.atoms() if a.element.symbol == 'O'), None
-        )
-        if oxygen is None:
-            continue
-        d, _ = tree.query(positions[oxygen.index], k=1)
-
-        if d > cutoff_nm:
-            waters_to_remove.append(residue)
-
-    if waters_to_remove:
-        modeller.delete(waters_to_remove)
-    return len(waters_to_remove)
-
 # ===================================================
 # Stage helpers
 # ===================================================
@@ -618,11 +498,6 @@ def _add_ligands_to_modeller(modeller, input_dir):
 		)
 		ligand_mol = _assign_charges_with_fallback(ligand_mol)
 		pending_ligands.append((basename, ligand_mol))
- 
-	n_removed = _strip_distant_waters(
-		modeller, [m for _, m in pending_ligands], cutoff_nm=0.4,
-	)
-	logger.info(f"Stripped {n_removed} waters > 4 Å from any ligand atom")
  
 	# Pass 2: add ligands; record the index ranges
 	ligand_entries = []
