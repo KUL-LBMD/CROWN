@@ -57,28 +57,28 @@ def map_clusters(df, cluster_dict, in_col_name, out_col_name):
 
 def merge_clusters():
 
-	metadata_df = pd.read_parquet(f'{DATA_DIR}/metadata/CROWN_metadata.parquet')
+    metadata_df = pd.read_parquet(f'{DATA_DIR}/metadata/CROWN_metadata.parquet')
 
-	# 1. Sequence similarity
-	sim_df = pd.read_hdf(f'{DATA_DIR}/metadata/CROWN_seqsim.h5')
-	cluster_dict_70 = build_cluster_dict(sim_df, 0.70)
-	cluster_dict_90 = build_cluster_dict(sim_df, 0.90)
-	metadata_df = map_clusters(metadata_df, cluster_dict_70, 'uniprot_single', '0.7 seqsim cluster')
-	metadata_df = map_clusters(metadata_df, cluster_dict_90, 'uniprot_single', '0.9 seqsim cluster')
-	metadata_df.drop(columns = ['uniprot_single'], inplace = True)
+    # 2. Ligand similarity
+    sim_df = pd.read_hdf(f'{DATA_DIR}/metadata/CROWN_ligsim.h5')
+    cluster_dict_50 = build_cluster_dict(sim_df, 0.50)
+    cluster_dict_70 = build_cluster_dict(sim_df, 0.70)
+    cluster_dict_90 = build_cluster_dict(sim_df, 0.90)
+    metadata_df = map_clusters(metadata_df, cluster_dict_50, 'lig_name', '0.5 ligsim cluster')
+    metadata_df = map_clusters(metadata_df, cluster_dict_70, 'lig_name', '0.7 ligsim cluster')
+    metadata_df = map_clusters(metadata_df, cluster_dict_90, 'lig_name', '0.9 ligsim cluster')
 
-	# 2. Ligand similarity
-	sim_df = pd.read_hdf(f'{DATA_DIR}/metadata/CROWN_ligsim.h5')
-	cluster_dict_70 = build_cluster_dict(sim_df, 0.70)
-	cluster_dict_90 = build_cluster_dict(sim_df, 0.90)
-	metadata_df = map_clusters(metadata_df, cluster_dict_70, 'lig_name', '0.7 ligsim cluster')
-	metadata_df = map_clusters(metadata_df, cluster_dict_90, 'lig_name', '0.9 ligsim cluster')
+    # 3. PLI similarity
+    sim_df = pd.read_hdf(f'{DATA_DIR}/metadata/CROWN_plisim.h5')
+    cluster_dict_50 = build_cluster_dict(sim_df, 0.50)
+    cluster_dict_70 = build_cluster_dict(sim_df, 0.70)
+    cluster_dict_90 = build_cluster_dict(sim_df, 0.90)
+    metadata_df = map_clusters(metadata_df, cluster_dict_50, 'basename', '0.5 plisim cluster')
+    metadata_df = map_clusters(metadata_df, cluster_dict_70, 'basename', '0.7 plisim cluster')
+    metadata_df = map_clusters(metadata_df, cluster_dict_90, 'basename', '0.9 plisim cluster')
 
-	# 3. PLI similarity
-	sim_df = pd.read_hdf(f'{DATA_DIR}/metadata/CROWN_plisim.h5')
-	cluster_dict_70 = build_cluster_dict(sim_df, 0.70)
-	cluster_dict_90 = build_cluster_dict(sim_df, 0.90)
-	metadata_df = map_clusters(metadata_df, cluster_dict_70, 'basename', '0.7 plisim cluster')
-	metadata_df = map_clusters(metadata_df, cluster_dict_90, 'basename', '0.9 plisim cluster')
+    # 1. Sequence similarity
+    seq_df = pd.read_csv(f'{DATA_DIR}/metadata/crown_seq_cluster_labels.csv')
+    metadata_df = metadata_df.merge(seq_df, on = ['basename'])
 
-	metadata_df.to_parquet(f'{DATA_DIR}/metadata/CROWN_metadata.parquet', index = False)
+    metadata_df.to_parquet(f'{DATA_DIR}/metadata/CROWN_metadata.parquet', index = False)
