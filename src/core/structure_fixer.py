@@ -1426,6 +1426,8 @@ def fix_structures(num_cores = 1):
     num_cores [int]: Number of CPU's for parallel processing. Default value = 1
     """
 
+    print('Starting structure fixer?')
+
     # Initialize components.cif
     url = "https://files.wwpdb.org/pub/pdb/data/monomers/components.cif.gz"
     with requests.get(url, stream=True, timeout=600) as r:
@@ -1434,6 +1436,55 @@ def fix_structures(num_cores = 1):
         with gzip.GzipFile(fileobj=r.raw) as gz, open(f'{DATA_DIR}/mmCIF/ccd/components.cif', "wb") as f:
             shutil.copyfileobj(gz, f, length=1 << 20)  # 1 MB chunks
     _load_ccd_cache()
+
+    fixed_set = set([x[:4] for x in os.listdir(f'{DATA_DIR}/pdb/fixed')])
+    pdb_list = [x[:4] for x in os.listdir(f'{DATA_DIR}/mmCIF/raw') if not x[:4] in fixed_set]
+    n_total = len(pdb_list)
+
+    print(f'Starting structure fixer on {n_total} new pdb entries')
+
+    results = Parallel(n_jobs = num_cores, verbose = 10)(delayed(main)(pdb_id) for pdb_id in pdb_list)
+
+    # Aggregate failure reasons
+    n_success = sum(1 for r in results if r['failure_reason'] is None)
+    failure_counts = defaultdict(int)
+    for r in results:
+        reason = r['failure_reason']
+        if reason is not None:
+            # Group exceptions / crashes under common keys for the summary
+            # table, but keep individual messages for the detailed log.
+            if reason.startswith('exception:'):
+                key = 'exception'
+            elif reason.startswith('child_crash:'):
+                key = 'child_crash'
+            else:
+                key = reason
+            failure_counts[key] += 1
+
+    with open(f'{DATA_DIR}/corrections.txt', 'w') as f:
+        f.write(f"\n{'='*60}\n")
+        f.write(f"  Structure fixer — summary ({n_total} input systems)\n")
+        f.write(f"{'='*60}\n\n")
+
+        f.write(f"  Successfully written          : {n_success:>6}  ({100*n_success/n_total:.1f}%)\n")
+        f.write(f"  Failed                        : {n_total - n_success:>6}  ({100*(n_total - n_success)/n_total:.1f}%)\n\n")
+
+        f.write(f"  --- Failure breakdown ---\n")
+        f.write(f"  Null elements in topology     : {failure_counts.get('null_elements_in_topology', 0):>6}\n")
+        f.write(f"  Unknown residues (UNK/UNL)     : {failure_counts.get('unknown_residue', 0):>6}\n")
+        f.write(f"  Modified residues in shell     : {failure_counts.get('modified_residues_in_shell', 0):>6}\n")
+        f.write(f"  Missing atoms in shell         : {failure_counts.get('missing_atoms_in_shell', 0):>6}\n")
+        f.write(f"  Branched residues in shell     : {failure_counts.get('branched_residues_in_shell', 0):>6}\n")
+        f.write(f"  Timed out (>{MAIN_TIMEOUT_SECONDS // 60} min, killed)     : {failure_counts.get('timeout', 0):>6}\n")
+        f.write(f"  Child crashed (segfault/OOM)   : {failure_counts.get('child_crash', 0):>6}\n")
+        f.write(f"  Uncaught exceptions            : {failure_counts.get('exception', 0):>6}\n\n")
+
+        # Log individual exceptions for debugging
+        exceptions = [(r['failure_reason']) for r in results if r['failure_reason'] and r['failure_reason'].startswith('exception:')]
+        if exceptions:
+            f.write(f"\n  --- Exception details ---\n")
+            for exc in exceptions:
+                f.write(f"  {exc}\n")
 
 if __name__ == '__main__':
 	main('3oii')

@@ -69,13 +69,8 @@ def merge_clusters():
     metadata_df = map_clusters(metadata_df, cluster_dict_90, 'lig_name', '0.9 ligsim cluster')
 
     # 3. PLI similarity
-    sim_df = pd.read_hdf(f'{DATA_DIR}/metadata/CROWN_plisim.h5')
-    cluster_dict_50 = build_cluster_dict(sim_df, 0.50)
-    cluster_dict_70 = build_cluster_dict(sim_df, 0.70)
-    cluster_dict_90 = build_cluster_dict(sim_df, 0.90)
-    metadata_df = map_clusters(metadata_df, cluster_dict_50, 'basename', '0.5 plisim cluster')
-    metadata_df = map_clusters(metadata_df, cluster_dict_70, 'basename', '0.7 plisim cluster')
-    metadata_df = map_clusters(metadata_df, cluster_dict_90, 'basename', '0.9 plisim cluster')
+    plec_df = pd.read_parquet(f'{DATA_DIR}/metadata/CROWN_plec_clusters.parquet')
+    metadata_df = metadata_df.merge(plec_df, on = ['basename'])
 
     # 1. Sequence similarity
     seq_df = pd.read_csv(f'{DATA_DIR}/metadata/crown_seq_cluster_labels.csv')

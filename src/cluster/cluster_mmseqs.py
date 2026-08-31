@@ -695,8 +695,7 @@ class SequenceComparer:
         df = pd.DataFrame(data_dict)
         df.to_csv(f'{DATA_DIR}/metadata/crown_seq_cluster_labels.csv', index = False)
 
-
-if __name__ == '__main__':
+def cluster_mmseqs():
     FastaBuilder().main()
     SequenceComparer().main()
     cleanup_mmseqs()

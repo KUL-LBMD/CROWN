@@ -65,3 +65,5 @@ def merge_metadata():
 	subset = subset.merge(rmsd_df, how = 'inner', on = ['basename'])
 	subset.dropna(subset = ['Ligand_RMSD', 'Pocket_RMSD', 'Scaffold_RMSD'], inplace = True)
 	subset.to_parquet(f'{DATA_DIR}/metadata/CROWN_metadata.parquet', index = False)
+
+	print(f'Original length: {len(rmsd_df)} - Final length: {len(subset)}')
