@@ -644,7 +644,7 @@ def protonate_ligand(mol: Chem.Mol) -> Chem.Mol:
 # Per-PDB driver
 # ---------------------------------------------------------------------------
  
-def process_system(basename: str) -> None:
+def process_system(basename: str, lig_name: str):
 
     ccd_cache, prefix_index = _get_ccd_cache()          # <-- load inside the worker
 
@@ -655,7 +655,6 @@ def process_system(basename: str) -> None:
     os.makedirs(out_dir, exist_ok = True)
  
     extracted_chain_names: list[str] = []
-    lig_name = None
 
     for chain in list(model):  # materialise: we may delete from model later
         passes, n_heavy, elements = chain_passes_filter(chain)
@@ -705,6 +704,8 @@ def process_system(basename: str) -> None:
     _remove_chains_by_name(receptor[0], extracted_chain_names)
     receptor_path = f'{out_dir}/receptor.pdb'
     receptor.write_pdb(str(receptor_path))
+
+    print(f'{basename}: {lig_name}')
 
     return basename, lig_name
 
