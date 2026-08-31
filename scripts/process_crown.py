@@ -35,14 +35,14 @@ new_subdirs = [f'{DATA_DIR}/mmCIF', f'{DATA_DIR}/mmCIF/raw', f'{DATA_DIR}/mmCIF/
 for subdir in new_subdirs:
 	os.makedirs(subdir, exist_ok = True)
 
-#print('Running step 1: downloading mmCIF files and metadata')
-#download_mmcif()
+print('Running step 1: downloading mmCIF files and metadata')
+download_mmcif()
 
-#for subdir in new_subdirs:
-#	os.makedirs(subdir, exist_ok = True)
+for subdir in new_subdirs:
+	os.makedirs(subdir, exist_ok = True)
 
-#get_pdb_metadata()
-#get_protein_metadata()
+get_pdb_metadata()
+get_protein_metadata()
 
 ### Step 2: Clean up structures and build PLI systems ###
 fix_structures(num_cores = NUM_CORES)
@@ -60,7 +60,10 @@ Parallel(n_jobs = NUM_CORES, verbose = 10)(delayed(process_system)(basename) for
 ### Step 5: Run energy minimization ###
 print('Step 5: Starting energy minimization')
 basename_list = os.listdir(f'{DATA_DIR}/systems')
-Parallel(n_jobs = NUM_CORES, verbose = 10)(delayed(safe_refine_system)(basename) for basename in basename_list)
+tuple_list = Parallel(n_jobs = NUM_CORES, verbose = 10)(delayed(safe_refine_system)(basename) for basename in basename_list)
+new_lig_names = [x[1] for x in tuple_list]
+df['lig_name'] = new_lig_names
+df.to_csv(f'{DATA_DIR}/metadata/pli_filter_pass.csv', index = False)
 
 ### Step 6: Post-processing: file conversion with OpenBabel ###
 print('Step 6: file conversion')
