@@ -5,7 +5,7 @@ from joblib import Parallel, delayed
 
 from src.config import DATA_DIR
 from src.core.download_mmcif import download_mmcif
-from src.core.get_pdb_metadata import fetch_pdb_ids
+from src.core.get_pdb_metadata import get_pdb_metadata
 from src.core.structure_fixer import fix_structures
 from src.core.pli_filter import filter_structures
 from src.core.system_builder import process_system
@@ -27,7 +27,7 @@ NUM_CORES = 96
 
 ### Step 1: Download raw files from rcsb ###
 
-# Initialize empty subdirectories
+#Initialize empty subdirectories
 new_subdirs = [f'{DATA_DIR}/mmCIF', f'{DATA_DIR}/mmCIF/raw', f'{DATA_DIR}/mmCIF/clean', f'{DATA_DIR}/mmCIF/ccd',
 	f'{DATA_DIR}/pdb', f'{DATA_DIR}/pdb/raw', f'{DATA_DIR}/pdb/fixed', f'{DATA_DIR}/systems',
 	f'{DATA_DIR}/processed_systems', f'{DATA_DIR}/complexes', f'{DATA_DIR}/mol2_files']
@@ -37,7 +37,11 @@ for subdir in new_subdirs:
 
 print('Running step 1: downloading mmCIF files and metadata')
 download_mmcif()
-fetch_pdb_ids()
+
+for subdir in new_subdirs:
+	os.makedirs(subdir, exist_ok = True)
+
+get_pdb_metadata()
 get_protein_metadata()
 
 ### Step 2: Clean up structures and build PLI systems ###
@@ -51,7 +55,11 @@ filter_structures(num_cores = NUM_CORES)
 print('Step 4: Preparing energy minimization')
 df = pd.read_csv(f'{DATA_DIR}/metadata/pli_filter_pass.csv')
 basename_list = df['basename'].tolist()
-Parallel(n_jobs = NUM_CORES, verbose = 10)(delayed(process_system)(basename) for basename in basename_list)
+ligname_list = df['lig_name'].tolist()
+tuple_list = Parallel(n_jobs = NUM_CORES, verbose = 10)(delayed(process_system)(basename, lig_name) for basename, lig_name in zip(basename_list, ligname_list))
+new_lig_names = [x[1] for x in tuple_list]
+df['lig_name'] = new_lig_names
+df.to_csv(f'{DATA_DIR}/metadata/pli_filter_pass.csv', index = False)
 
 ### Step 5: Run energy minimization ###
 print('Step 5: Starting energy minimization')

@@ -64,15 +64,21 @@ def get_validation_data(pdb_id: str):
 		r.raise_for_status()
 
 	except requests.RequestException:
-		return None
+		return None, None
 
 	try:
 		xml_data = gzip.decompress(r.content)
 		root = ET.fromstring(xml_data)
 	except (OSError, ET.ParseError):
-		return None
+		return None, None
 
 	namespace = root.tag.split("}")[0] + "}" if "}" in root.tag else ""
+
+	entry = root.find(f"{namespace}Entry")
+	if entry is not None:
+		global_q = entry.attrib.get('Q_score')
+	else:
+		global_q = np.nan
 
 	results = {}
 
@@ -82,11 +88,14 @@ def get_validation_data(pdb_id: str):
 		res_num = res.get('resnum')
 		rsr = res.get('rsr')
 		rscc = res.get('rscc')
+		q = res.get('Q_score')
 
-		if res_name != 'HOH' and rsr is not None and rscc is not None:
-			results[(chain_id, res_name, res_num)] = (float(rsr), float(rscc))
+		res_tuple = tuple(float(x) if x is not None else np.nan for x in [rsr, rscc, q])
 
-	return results
+		if res_name != 'HOH':
+			results[(chain_id, res_name, res_num)] = res_tuple
+
+	return global_q, results
 
 def icp(mobile, target, max_iters = 100, tolerance = 1e-6):
 	"""
@@ -135,34 +144,38 @@ def icp(mobile, target, max_iters = 100, tolerance = 1e-6):
 
 def kabsch(mobile, target):
 	"""
-	Align mobile ligand to target using Kabsch algorithm
+	Compute the rigid-body transform (rotation + translation) that best
+	superposes `mobile` onto `target` in a least-squares sense (Kabsch).
 
 	Parameters
 	----------
 	mobile [L, 3]
-	target [L, 3]
+	target [L, 3]   (row i of target corresponds to row i of mobile)
 
 	Returns
 	-------
-	rmsd [float]
+	rotation [3, 3]
+	t        [3]
+		such that  rotation @ x + t  maps a mobile point x onto target.
 	"""
 
-	mobile_center = np.mean(mobile, axis = 0)
-	target_center = np.mean(target, axis = 0)
+	# Work on copies so the caller's arrays are never modified in place.
+	mobile_center = mobile.mean(axis=0)
+	target_center = target.mean(axis=0)
 
-	mobile -= mobile_center
-	target -= target_center
+	mobile_c = mobile - mobile_center
+	target_c = target - target_center
 
-	H = mobile.T @ target
+	H = mobile_c.T @ target_c
 	U, S, Vt = np.linalg.svd(H)
-	rotation = Vt.T @ U.T
 
-	# Ensure right-handed coordinate system
-	if np.linalg.det(rotation) < 0:
-		Vt[-1,:] *= -1
-		rotation = Vt.T @ U.T
+	# Correct for a reflection so we get a proper rotation (det = +1).
+	d = np.sign(np.linalg.det(Vt.T @ U.T))
+	D = np.diag([1.0, 1.0, d])
+	rotation = Vt.T @ D @ U.T
 
-	t = target.mean(axis=0) - rotation @ mobile.mean(axis=0)
+	# Translation uses the ORIGINAL centroids, not the (now-zero) centered ones.
+	t = target_center - rotation @ mobile_center
 
 	return rotation, t
 
@@ -196,7 +209,7 @@ def parse_pdb(file_path):
 				line = line.strip()
 				res_name = line[17:20].strip()
 				chain_id = line[21].strip()
-				resnum = line[22:25].strip()
+				resnum = line[22:26].strip()
 				atom_name = line[12:16].strip()
 				element = line[76:78].strip().upper()
 				if element in {'H', 'D'}:
@@ -278,10 +291,12 @@ def calculate_rsr_rscc(basename: str, res_info: Dict[Tuple[str, str, str], Tuple
 
 	ligand_rsr = _safe_mean([res_info[x][0] if x in res_info else np.nan for x in ligand_keys])
 	ligand_rscc = _safe_mean([res_info[x][1] if x in res_info else np.nan for x in ligand_keys])
+	ligand_q = _safe_mean([res_info[x][2] if x in res_info else np.nan for x in ligand_keys])
 	pocket_rsr = _safe_mean([res_info[x][0] if x in res_info else np.nan for x in pocket_keys])
 	pocket_rscc = _safe_mean([res_info[x][1] if x in res_info else np.nan for x in pocket_keys])
+	pocket_q = _safe_mean([res_info[x][2] if x in res_info else np.nan for x in pocket_keys])
 
-	return ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc, chain_set, len(ligand_keys), len(pocket_keys)
+	return ligand_rsr, ligand_rscc, ligand_q, pocket_rsr, pocket_rscc, pocket_q, chain_set, len(ligand_keys), len(pocket_keys)
 
 def calculate_delta_sas(prot_coords, lig_coords, prot_radii, lig_radii):
 	"""
@@ -349,7 +364,7 @@ def process_group(pdb_id: str, group, uniprot_chains):
 			))
 		return results, rejections
 
-	res_info = get_validation_data(pdb_id)
+	global_q, res_info = get_validation_data(pdb_id)
 	validation_available = isinstance(res_info, dict) and len(res_info) > 0
 
 	for filename in group:
@@ -385,48 +400,10 @@ def process_group(pdb_id: str, group, uniprot_chains):
 			continue
 
 		# Check 1: RSR and RSCC
-		ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc, chain_set, n_lig_keys, n_pocket_keys = \
+		ligand_rsr, ligand_rscc, ligand_q, pocket_rsr, pocket_rscc, pocket_q, chain_set, n_lig_keys, n_pocket_keys = \
 			calculate_rsr_rscc(filename, res_info, clean_structure, lig_coords)
 
 		if not any(chain_id in uniprot_chains for chain_id in chain_set):
-			continue
-
-		if np.isnan([ligand_rsr, ligand_rscc, pocket_rsr, pocket_rscc]).any():
-			# Distinguish the two failure modes for the residue-key lookup:
-			# either no keys were found at all, or none of the keys were in
-			# the validation report.
-			if n_lig_keys == 0 or n_pocket_keys == 0:
-				detail = f'no ligand_keys ({n_lig_keys}) or pocket_keys ({n_pocket_keys}) identified'
-			else:
-				detail = ('validation report present, but residue keys absent from it '
-				          '(NaN RSR/RSCC after lookup)')
-			rejections.append(_make_rejection(
-				filename, 'validation_missing_residues', detail,
-				lig_name=lig_name,
-				ligand_rsr=ligand_rsr, ligand_rscc=ligand_rscc,
-				pocket_rsr=pocket_rsr, pocket_rscc=pocket_rscc,
-				n_ligand_keys=n_lig_keys, n_pocket_keys=n_pocket_keys,
-			))
-			continue
-
-		if ligand_rsr > 0.3 or pocket_rsr > 0.3 or ligand_rscc < 0.8 or pocket_rscc < 0.8:
-			# Build a precise reason listing which thresholds were violated
-			fails = []
-			if ligand_rsr > 0.3:
-				fails.append(f'ligand_rsr={ligand_rsr:.3f} > 0.3')
-			if pocket_rsr > 0.3:
-				fails.append(f'pocket_rsr={pocket_rsr:.3f} > 0.3')
-			if ligand_rscc < 0.8:
-				fails.append(f'ligand_rscc={ligand_rscc:.3f} < 0.8')
-			if pocket_rscc < 0.8:
-				fails.append(f'pocket_rscc={pocket_rscc:.3f} < 0.8')
-			rejections.append(_make_rejection(
-				filename, 'rsr_rscc_threshold',
-				'; '.join(fails),
-				lig_name=lig_name,
-				ligand_rsr=ligand_rsr, ligand_rscc=ligand_rscc,
-				pocket_rsr=pocket_rsr, pocket_rscc=pocket_rscc,
-			))
 			continue
 
 		# Check 2: more than 10 close contacts?
@@ -496,11 +473,10 @@ def process_group(pdb_id: str, group, uniprot_chains):
 			'sas_ratio': sas_ratio,
 			'ligand_rsr': ligand_rsr, 'ligand_rscc': ligand_rscc,
 			'pocket_rsr': pocket_rsr, 'pocket_rscc': pocket_rscc,
+			'global_q': global_q, 'ligand_q': ligand_q, 'pocket_q': pocket_q,
 			'chain_set': '-'.join(chain_set),
 		}
 		results.append(entry_results)
-
-	print(f'Entries retained: {len(results)} / {len(group)}')
 
 	return results, rejections
 

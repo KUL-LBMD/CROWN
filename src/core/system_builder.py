@@ -350,6 +350,7 @@ def build_rdkit_mols_from_chain(
     residues_data: list[list[tuple[str, int, np.ndarray]]] = []
  
     residues = list(chain)
+    name_list = []
  
     # First pass: initialize atoms as point cloud, applying CCD formal
     # charges. Without this, residues with quaternary N+, phosphates,
@@ -359,6 +360,7 @@ def build_rdkit_mols_from_chain(
  
         observed_atoms = {normalize(a.name) for a in residue if a.element.name not in ("H", "D")}
         resolved = resolve_ccd_code(residue.name, prefix_index, pdb_id)
+        name_list.append(resolved)
         template = ccd_cache.get(resolved) if resolved else None
         template_atoms = template["atoms"] if template is not None else {}
  
@@ -492,7 +494,9 @@ def build_rdkit_mols_from_chain(
     frags = list(Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=False))
     for i, frag in enumerate(frags):
         _sanitize_with_fallback(frag, label=f"chain {chain.name} frag {i}")
-    return frags
+
+    lig_name = '-'.join(name_list)
+    return lig_name, frags
 
 # ---------------------------------------------------------------------------
 # Receptor construction
@@ -640,7 +644,7 @@ def protonate_ligand(mol: Chem.Mol) -> Chem.Mol:
 # Per-PDB driver
 # ---------------------------------------------------------------------------
  
-def process_system(basename: str) -> None:
+def process_system(basename: str, lig_name: str):
 
     ccd_cache, prefix_index = _get_ccd_cache()          # <-- load inside the worker
 
@@ -651,6 +655,7 @@ def process_system(basename: str) -> None:
     os.makedirs(out_dir, exist_ok = True)
  
     extracted_chain_names: list[str] = []
+
     for chain in list(model):  # materialise: we may delete from model later
         passes, n_heavy, elements = chain_passes_filter(chain)
         if passes:
@@ -660,29 +665,32 @@ def process_system(basename: str) -> None:
                 print(f'{basename} - {chain.name} - Bad elements')
 
                 shutil.rmtree(out_dir)
-                return
+                return basename, None
             
-            mols = build_rdkit_mols_from_chain(chain, ccd_cache, prefix_index, basename[:4])
+            new_name, mols = build_rdkit_mols_from_chain(chain, ccd_cache, prefix_index, basename[:4])
+            if chain.name == 'A':
+                lig_name = new_name
+
             if mols is None:
 
                 print(f'{basename} - {chain.name} - Molecule building failed')
 
                 shutil.rmtree(out_dir)
-                return
+                return basename, None
  
             for frag_i, mol in enumerate(mols):
                 if len(mols) == 1:
                     stem = f"chain_{chain.name}"
                 else:
                     shutil.rmtree(out_dir)
-                    return
+                    return basename, None
 
                 mol_h = protonate_ligand(mol)
 
                 if mol_h is None:
                     print(f'{basename} - {chain.name} - Protonation failed')
                     shutil.rmtree(out_dir)
-                    return
+                    return basename, None
 
                 mol_h.SetProp("_Name", f"{basename}_{stem}")
                 sdf_path = f"{out_dir}/{stem}.sdf"
@@ -696,6 +704,10 @@ def process_system(basename: str) -> None:
     _remove_chains_by_name(receptor[0], extracted_chain_names)
     receptor_path = f'{out_dir}/receptor.pdb'
     receptor.write_pdb(str(receptor_path))
+
+    print(f'{basename}: {lig_name}')
+
+    return basename, lig_name
 
 if __name__ == '__main__':
 	process_system('3fiv_D')
