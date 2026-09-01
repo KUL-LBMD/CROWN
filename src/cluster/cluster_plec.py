@@ -267,5 +267,5 @@ def cluster_plec(num_cores=-1, size=32768, cluster_threshold=0.5,
     clusters_50 = single_linkage_labels(mst, labels, 0.5)
     clusters_70 = single_linkage_labels(mst, labels, 0.7)
     clusters_90 = single_linkage_labels(mst, labels, 0.9)
-    pd.DataFrame({'basename': labels, 'plec_50': clusters_50, 'plec_70': clusters_70, 'plec_90': clusters_90}).to_parquet(
+    pd.DataFrame({'basename': labels, '0.5 pli-sim cluster': clusters_50, '0.7 pli-sim cluster': clusters_70, '0.9 pli-sim cluster': clusters_90}).to_parquet(
         f'{meta}/CROWN_plec_clusters.parquet', index=False)

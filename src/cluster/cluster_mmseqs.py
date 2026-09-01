@@ -660,12 +660,11 @@ class SequenceComparer:
                     total=len(cand_i), desc="Scoring candidate pairs", unit="pair"):
                 vals = [v for v in (prot, sh, ident, ident_sh) if v == v]  # drop NaN
                 if vals and max(vals) >= self.edge_floor:
-                    records.append((id1, id2, prot, sh, ident, ident_sh))
+                    records.append((id1, id2, prot, sh))
         print(f"[info] kept {len(records):,} edges (best metric >= {self.edge_floor})")
 
         # Sparse edge list: everything needed to cluster at any metric/threshold >= floor.
-        edges = pd.DataFrame(records, columns=['id1', 'id2', 'protein_sim', 'pocket_shared',
-                                               'pocket_identity', 'pocket_identity_shared'])
+        edges = pd.DataFrame(records, columns=['id1', 'id2', 'seq-sim', 'pocket-sim'])
         edges.to_parquet(f'{DATA_DIR}/metadata/crown_pair_similarity.parquet', index=False)
         with open(f'{DATA_DIR}/metadata/crown_complex_ids.json', 'w') as fh:
             json.dump(complex_ids, fh)  # full node list, needed to recover singletons
@@ -673,8 +672,7 @@ class SequenceComparer:
         # Minimum spanning forest per metric = the single-linkage merge tree. Each is at
         # most n_complexes - 1 rows, so all four together are tiny, and they let you
         # relabel at ANY threshold >= edge_floor without recomputing pairwise scores.
-        metrics = ['protein_sim', 'pocket_shared',
-                   'pocket_identity', 'pocket_identity_shared']
+        metrics = ['seq-sim', 'pocket-sim']
         forests = []
         for m in metrics:
             forest = self._build_mst(edges, complex_ids, m)
@@ -688,7 +686,7 @@ class SequenceComparer:
 
         for cluster_metric in metrics:
             for cluster_threshold in [0.5, 0.7, 0.9]:
-                col_name = f'{cluster_metric}_{cluster_threshold}'
+                col_name = f'{cluster_threshold} {cluster_metric} cluster'
                 labels = self._labels_from_mst(mst[mst['metric'] == cluster_metric], complex_ids, cluster_threshold)
                 data_dict[col_name] = labels
 

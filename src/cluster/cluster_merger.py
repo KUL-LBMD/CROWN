@@ -1,79 +1,56 @@
-import pandas as pd
+"""Merge every metric's single-linkage cluster labels onto CROWN_metadata.parquet.
+
+All four metrics now come from MSTs and write a small cluster-label table each, so this is
+just a series of merges -- no dense similarity matrix is loaded anywhere:
+
+  sequence / pocket : crown_seq_cluster_labels.csv     merged on basename
+  protein-ligand    : CROWN_plec_clusters.parquet      merged on basename
+  ligand (ECFP4)    : CROWN_ecfp4_clusters.parquet     merged on lig_name
+
+The ligand labels are identical to the old dense-matrix + scipy single-linkage result
+(single linkage IS the MST), so switching to the MST changes memory use, not the science.
+
+Note: ligand label columns are now named '{t} lig-sim cluster' (was '{t} ligsim cluster').
+To re-cut any metric at a different threshold, use make_clusters.py rather than editing here.
+"""
+
 import numpy as np
-from scipy.cluster.hierarchy import linkage, fcluster
-from scipy.spatial.distance import squareform
+import pandas as pd
 
 from src.config import DATA_DIR
 
-def build_cluster_dict(sim_df, sim_level):
-    """
-    Parameters
-    ----------
-    sim_df : pd.DataFrame
-        N x N symmetric similarity matrix, index names = column names.
-    sim_level : float
-        Cut-off to be in the same similarity cluster.
+META_DIR = f'{DATA_DIR}/metadata'
 
-    Returns
-    -------
-    cluster_dict : dict
-        Maps each entry to a cluster label.
-    """
-    # Convert similarity to distance (assuming similarity in [0, 1])
-    dist_matrix = 1 - sim_df.values
-    np.fill_diagonal(dist_matrix, 0)
 
-    # squareform expects the upper triangle as a condensed vector
-    condensed_dist = squareform(dist_matrix, checks=False)
-
-    # Single-linkage clustering on the distance matrix
-    Z = linkage(condensed_dist, method='single')
-
-    # fcluster threshold is a distance: items with similarity > sim_level
-    # correspond to distance < (1 - sim_level)
-    labels = fcluster(Z, t=1 - sim_level, criterion='distance')
-
-    index_list = sim_df.index.tolist()
-    cluster_dict = dict(zip(index_list, labels))
-
-    return cluster_dict
-
-def map_clusters(df, cluster_dict, in_col_name, out_col_name):
-    # Start labels for unmapped IDs above the existing max
-    next_label = max(cluster_dict.values()) + 1 if cluster_dict else 0
-
-    def assign_cluster(uid):
-        nonlocal next_label
-        if uid in cluster_dict:
-            return cluster_dict[uid]
-        else:
-            label = next_label
-            next_label += 1
-            return label
-
-    df = df.copy()
-    df[out_col_name] = df[in_col_name].map(assign_cluster)
+def _fill_unmapped_singletons(df, label_cols):
+    """Give every still-unlabeled row (e.g. a ligand whose SMILES failed to parse, so it
+    never entered the MST) its own fresh singleton label, above the existing max -- the
+    same behaviour the old map_clusters() had for unmapped IDs."""
+    for col in label_cols:
+        missing = df[col].isna()
+        if missing.any():
+            start = int(np.nanmax(df[col].to_numpy())) + 1 if df[col].notna().any() else 0
+            df.loc[missing, col] = np.arange(start, start + int(missing.sum()))
+        df[col] = df[col].astype('int64')
     return df
 
+
 def merge_clusters():
+    metadata_df = pd.read_parquet(f'{META_DIR}/CROWN_metadata.parquet')
 
-    metadata_df = pd.read_parquet(f'{DATA_DIR}/metadata/CROWN_metadata.parquet')
+    # 1. Sequence + pocket similarity (nodes = basename)
+    seq_df = pd.read_csv(f'{META_DIR}/crown_seq_cluster_labels.csv')
+    metadata_df = metadata_df.merge(seq_df, on='basename', how='left')
 
-    # 2. Ligand similarity
-    sim_df = pd.read_hdf(f'{DATA_DIR}/metadata/CROWN_ligsim.h5')
-    cluster_dict_50 = build_cluster_dict(sim_df, 0.50)
-    cluster_dict_70 = build_cluster_dict(sim_df, 0.70)
-    cluster_dict_90 = build_cluster_dict(sim_df, 0.90)
-    metadata_df = map_clusters(metadata_df, cluster_dict_50, 'lig_name', '0.5 ligsim cluster')
-    metadata_df = map_clusters(metadata_df, cluster_dict_70, 'lig_name', '0.7 ligsim cluster')
-    metadata_df = map_clusters(metadata_df, cluster_dict_90, 'lig_name', '0.9 ligsim cluster')
+    # 2. Protein-ligand interaction similarity (nodes = basename)
+    plec_df = pd.read_parquet(f'{META_DIR}/CROWN_plec_clusters.parquet')
+    metadata_df = metadata_df.merge(plec_df, on='basename', how='left')
 
-    # 3. PLI similarity
-    plec_df = pd.read_parquet(f'{DATA_DIR}/metadata/CROWN_plec_clusters.parquet')
-    metadata_df = metadata_df.merge(plec_df, on = ['basename'])
+    # 3. Ligand similarity (ECFP4; nodes = lig_name)
+    ecfp4_df = pd.read_parquet(f'{META_DIR}/CROWN_ecfp4_clusters.parquet')
+    lig_cols = [c for c in ecfp4_df.columns if c != 'lig_name']
+    metadata_df = metadata_df.merge(ecfp4_df, on='lig_name', how='left')
+    metadata_df = _fill_unmapped_singletons(metadata_df, lig_cols)
 
-    # 1. Sequence similarity
-    seq_df = pd.read_csv(f'{DATA_DIR}/metadata/crown_seq_cluster_labels.csv')
-    metadata_df = metadata_df.merge(seq_df, on = ['basename'])
-
-    metadata_df.to_parquet(f'{DATA_DIR}/metadata/CROWN_metadata.parquet', index = False)
+    metadata_df.to_parquet(f'{META_DIR}/CROWN_metadata.parquet', index=False)
+    print(f"Merged cluster labels for {len(metadata_df):,} complexes")
