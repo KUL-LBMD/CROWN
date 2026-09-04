@@ -63,7 +63,7 @@ label. For example, `complexes/3zwe_F/` contains:
 | `ligand_minimized.sdf` | Protonated and energy-minimized ligand structure. |
 
 A full description of every field in `CROWN_metadata.parquet` is provided in the
-`README.md` bundled with the Zenodo download.
+`README.md` bundled with the Zenodo download, or in the Supplementary Information of our publication.
 
 ## Clustering and minimum spanning trees
 
