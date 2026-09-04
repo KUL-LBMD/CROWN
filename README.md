@@ -16,9 +16,9 @@ implemented in this repository.
 
 ## Resources
 
-- **Web interface** — browse and search the full dataset interactively at [crown.lbmd.be](https://crown.lbmd.be)
-- **Bulk download** — the complete archive and its metadata are on [Zenodo](https://zenodo.org/records/20825315)
-- **This repository** — all scripts required to rebuild CROWN from scratch
+- **Web interface:** browse and search the full dataset interactively at [crown.lbmd.be](https://crown.lbmd.be)
+- **Bulk download:** the complete archive and its metadata are on [Zenodo](https://zenodo.org/records/20825315)
+- **This repository:** all scripts required to rebuild CROWN from scratch
 
 ## Installation
 
