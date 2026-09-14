@@ -460,12 +460,30 @@ class OverlapResolver:
 
                     if _count_heavy_atoms(model1, chain1_id) >= 10:
                         _remove_chain(model1, chain2_id); removed1.add(chain2_id)
+
+                        for other_overlap in overlaps:
+                            if other_overlap != overlap_pair:
+                                other_id1, other_id2 = other_overlap.split(',')
+                                if _count_heavy_atoms(model1, other_id1) >= _count_heavy_atoms(model1, other_id2):
+                                    _remove_chain(model1, other_id2); removed1.add(other_id2)
+                                else:
+                                    _remove_chain(model1, other_id1); removed1.add(other_id1)
+
                         structure_list.append(structure1)
                         if bonds is not None:
                             bonds_to_add.append([b for b in bonds if not (set(b.split(",")) & removed1)])
 
                     if _count_heavy_atoms(model2, chain2_id) >= 10:
                         _remove_chain(model2, chain1_id); removed2.add(chain1_id)
+
+                        for other_overlap in overlaps:
+                            if other_overlap != overlap_pair:
+                                other_id1, other_id2 = other_overlap.split(',')
+                                if _count_heavy_atoms(model2, other_id1) >= _count_heavy_atoms(model2, other_id2):
+                                    _remove_chain(model2, other_id2); removed2.add(other_id2)
+                                else:
+                                    _remove_chain(model2, other_id1); removed2.add(other_id1)
+
                         structure_list.append(structure2)
                         if bonds is not None:
                             bonds_to_add.append([b for b in bonds if not (set(b.split(",")) & removed2)])
