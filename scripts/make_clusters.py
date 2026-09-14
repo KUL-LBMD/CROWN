@@ -70,12 +70,6 @@ def cmd_list(args):
             print(f"{m:12s} {'?':>9s} {'?':>9s} {'?':>15s} "
                   f"{s['edge_floor']:>12.2f}  {s['id_column']}  (combine to inspect)")
 
-
-def cmd_combine(args):
-    floors = dict(zip(args.floor_metric or [], args.floor_value or [])) or None
-    cm.combine_msts(floors=floors)
-
-
 def cmd_label(args):
     mst, meta = cm.load_combined()
     if args.metric not in meta:
@@ -117,11 +111,6 @@ def build_parser():
     sub.add_parser('list', help='show available metrics and their valid cutoff ranges'
                    ).set_defaults(func=cmd_list)
 
-    c = sub.add_parser('combine', help='(re)build the combined MST from per-metric outputs')
-    c.add_argument('--floor-metric', nargs='*', help='metric name(s) to override edge_floor')
-    c.add_argument('--floor-value', nargs='*', type=float, help='matching floor value(s)')
-    c.set_defaults(func=cmd_combine)
-
     l = sub.add_parser('label', help='cut a metric at one or more thresholds into labels')
     l.add_argument('--metric', required=True, help='seq-sim | pocket-sim | pli-sim | lig-sim')
     g = l.add_mutually_exclusive_group(required=True)
@@ -129,15 +118,14 @@ def build_parser():
                    help='single similarity cutoff')
     g.add_argument('--thresholds', type=float, nargs='+',
                    help='several cutoffs (sweep)')
+    l.set_defaults(func=cmd_label)
     return p
-
 
 def main():
     args = build_parser().parse_args()
     if getattr(args, 'threshold', None) is not None:  # normalise to a list
         args.thresholds = [args.threshold]
     args.func(args)
-
 
 if __name__ == '__main__':
     main()

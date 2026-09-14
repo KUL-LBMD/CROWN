@@ -645,6 +645,7 @@ def select_ligand_chains(structure: gemmi.Structure):
 
         for residue in chain:
             res_name = residue.name
+            print(f'Chain {chain_id}: residue {res_name}')
             for atom in residue:
                 element = atom.element.name
 
@@ -661,6 +662,8 @@ def select_ligand_chains(structure: gemmi.Structure):
 
         allowed_length_bool = atom_count >= 10 and atom_count <= 100
         carbon_bool = num_carbons > 2
+
+        print(f'Chain {chain}: length: {atom_count} - C atoms {num_carbons} - No Metal {no_metal_bool}')
 
         if allowed_length_bool and carbon_bool and no_metal_bool:
             ligand_chains.append(chain_id)
@@ -1487,4 +1490,4 @@ def fix_structures(num_cores = 1):
                 f.write(f"  {exc}\n")
 
 if __name__ == '__main__':
-	main('3oii')
+	main('10mn')

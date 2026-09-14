@@ -32,6 +32,7 @@ SHELL_RADIUS = 6
 REJECT_STAGES = [
 	'parse_failed',
 	'validation_unavailable',
+	'no_uniprot_chains',
 	'validation_missing_residues',
 	'rsr_rscc_threshold',
 	'too_few_contacts',
@@ -404,6 +405,13 @@ def process_group(pdb_id: str, group, uniprot_chains):
 			calculate_rsr_rscc(filename, res_info, clean_structure, lig_coords)
 
 		if not any(chain_id in uniprot_chains for chain_id in chain_set):
+			rejections.append(_make_rejection(
+				filename, 'no_uniprot_chains',
+				'No UniProt chains found in structure',
+				lig_name=lig_name,
+                                ligand_rsr=ligand_rsr, ligand_rscc=ligand_rscc,
+                                pocket_rsr=pocket_rsr, pocket_rscc=pocket_rscc
+			))
 			continue
 
 		# Check 2: more than 10 close contacts?
