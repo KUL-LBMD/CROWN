@@ -404,15 +404,15 @@ def process_group(pdb_id: str, group, uniprot_chains):
 		ligand_rsr, ligand_rscc, ligand_q, pocket_rsr, pocket_rscc, pocket_q, chain_set, n_lig_keys, n_pocket_keys = \
 			calculate_rsr_rscc(filename, res_info, clean_structure, lig_coords)
 
-		if not any(chain_id in uniprot_chains for chain_id in chain_set):
-			rejections.append(_make_rejection(
-				filename, 'no_uniprot_chains',
-				'No UniProt chains found in structure',
-				lig_name=lig_name,
-                                ligand_rsr=ligand_rsr, ligand_rscc=ligand_rscc,
-                                pocket_rsr=pocket_rsr, pocket_rscc=pocket_rscc
-			))
-			continue
+		#if not any(chain_id in uniprot_chains for chain_id in chain_set):
+		#	rejections.append(_make_rejection(
+		#		filename, 'no_uniprot_chains',
+		#		'No UniProt chains found in structure',
+		#		lig_name=lig_name,
+                 #               ligand_rsr=ligand_rsr, ligand_rscc=ligand_rscc,
+                  #              pocket_rsr=pocket_rsr, pocket_rscc=pocket_rscc
+		#	))
+		#	continue
 
 		# Check 2: more than 10 close contacts?
 		lig_tree = KDTree(lig_coords)
