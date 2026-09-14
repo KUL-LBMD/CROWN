@@ -58,12 +58,11 @@ def merge_metadata():
 	for col_name in set_cols:
 		df[col_name] = df[col_name].apply(lambda x: sorted(x) if isinstance(x, set) else x)
 
-	subset = df[df['n_uniprot'] > 0].copy()
-	subset['uniprot_single'] = subset['uniprot_id'].apply(lambda x: x[0])
+	df['uniprot_single'] = df['uniprot_id'].apply(lambda x: x[0] if x else None)
 
 	### Step 5: add RMSD data ###
-	subset = subset.merge(rmsd_df, how = 'inner', on = ['basename'])
-	subset.dropna(subset = ['Ligand_RMSD', 'Pocket_RMSD', 'Scaffold_RMSD'], inplace = True)
-	subset.to_parquet(f'{DATA_DIR}/metadata/CROWN_metadata.parquet', index = False)
+	df = df.merge(rmsd_df, how = 'inner', on = ['basename'])
+	df.dropna(subset = ['Ligand_RMSD', 'Pocket_RMSD', 'Scaffold_RMSD'], inplace = True)
+	df.to_parquet(f'{DATA_DIR}/metadata/CROWN_metadata.parquet', index = False)
 
-	print(f'Original length: {len(rmsd_df)} - Final length: {len(subset)}')
+	print(f'Original length: {len(rmsd_df)} - Final length: {len(df)}')

@@ -93,5 +93,5 @@ def get_protein_metadata():
 	uniprot_df['EC_number'] = uniprot_df['EC_number'].str.replace('; ', '_')
 
 	sifts_df = sifts_df.merge(uniprot_df, how = 'left', on = ['uniprot_id'])
-	sifts_df = sifts_df.merge(cath_df, how = 'left', on = ['pdb_id', 'chain_id'])
+	sifts_df = sifts_df.merge(cath_df, how = 'outer', on = ['pdb_id', 'chain_id']) # Keep metadata for de novo proteins, antibodies etc. These do not have a UniProtKB entry
 	sifts_df.to_csv(f'{DATA_DIR}/metadata/uniprot_metadata.csv', index = False)
