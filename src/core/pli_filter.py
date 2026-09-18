@@ -32,6 +32,7 @@ SHELL_RADIUS = 6
 REJECT_STAGES = [
 	'parse_failed',
 	'validation_unavailable',
+	'no_protein_chains',
 	'validation_missing_residues',
 	'rsr_rscc_threshold',
 	'too_few_contacts',
@@ -298,6 +299,38 @@ def calculate_rsr_rscc(basename: str, res_info: Dict[Tuple[str, str, str], Tuple
 
 	return ligand_rsr, ligand_rscc, ligand_q, pocket_rsr, pocket_rscc, pocket_q, chain_set, len(ligand_keys), len(pocket_keys)
 
+def _calculate_standard_residues(structure: gemmi.Structure):
+	"""
+	For every chain, calculate # standard amino acids
+
+	Parameters
+	----------
+	structure [gemmi.Structure]
+
+	Returns
+	-------
+	length_list [List[int]]
+	"""
+
+	STANDARD_AA = {'ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'CYX', 'GLN', 'GLU', 'GLY', 'HIS', 'HID', 'HIE', 'HYP', 'ILE', 'LEU', 
+               'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL', 'CALA', 'CARG', 'CASN', 'CASP', 'CCYS', 'CCYX', 'CGLN', 'CGLU', 'CGLY', 
+               'CHID', 'CHIE', 'CHYP', 'CILE', 'CLEU', 'CLYS', 'CMET', 'CPHE', 'CPRO', 'CSER', 'CTHR', 'CTRP', 'CTYR', 'CVAL',
+               'NALA', 'NARG', 'NASN', 'NASP', 'NCYS', 'NCYX', 'NGLN', 'NGLU', 'NGLY', 'NHID', 'NHIE', 'NILE', 'NLEU', 'NLYS', 'NMET', 
+               'NPHE', 'NPRO', 'NSER', 'NTHR', 'NTRP', 'NTYR', 'NVAL'}
+
+	model = structure[0]
+	length_list = []
+
+	for chain in model:
+		chain_count = 0
+		for res in chain:
+			res_name = res.name
+			if res_name in STANDARD_AA:
+				chain_count += 1
+		length_list.append(chain_count)
+
+	return length_list
+
 def calculate_delta_sas(prot_coords, lig_coords, prot_radii, lig_radii):
 	"""
 	Calculates SASA difference between ligand in vacuum and ligand in receptor
@@ -403,8 +436,26 @@ def process_group(pdb_id: str, group, uniprot_chains):
 		ligand_rsr, ligand_rscc, ligand_q, pocket_rsr, pocket_rscc, pocket_q, chain_set, n_lig_keys, n_pocket_keys = \
 			calculate_rsr_rscc(filename, res_info, clean_structure, lig_coords)
 
-		if not any(chain_id in uniprot_chains for chain_id in chain_set):
+		length_list = _calculate_standard_residues(clean_structure)
+		if not any([x >= 30 for x in length_list]):
+			rejections.append(_make_rejection(
+				filename, 'no_protein_chains',
+				'No protein chains found in structure',
+				lig_name = lig_name,
+				ligand_rsr=ligand_rsr, ligand_rscc=ligand_rscc,
+				pocket_rsr=pocket_rsr, pocket_rscc=pocket_rscc
+			))
 			continue
+
+		#if not any(chain_id in uniprot_chains for chain_id in chain_set):
+		#	rejections.append(_make_rejection(
+		#		filename, 'no_uniprot_chains',
+		#		'No UniProt chains found in structure',
+		#		lig_name=lig_name,
+                 #               ligand_rsr=ligand_rsr, ligand_rscc=ligand_rscc,
+                  #              pocket_rsr=pocket_rsr, pocket_rscc=pocket_rscc
+		#	))
+		#	continue
 
 		# Check 2: more than 10 close contacts?
 		lig_tree = KDTree(lig_coords)

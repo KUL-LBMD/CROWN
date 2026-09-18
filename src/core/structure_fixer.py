@@ -430,18 +430,70 @@ class OverlapResolver:
 
         return contact_info, bonds_to_add, overlaps_to_resolve
 
-    def resolve_overlaps(self, structure, overlaps, bonds=None):
-        model = structure[0]
-        removed = set()
-        for overlap_pair in overlaps:
-            chain1_id, chain2_id = overlap_pair.split(",")
-            if _has_chain(model, chain1_id) and _has_chain(model, chain2_id):
-                if _count_heavy_atoms(model, chain1_id) > _count_heavy_atoms(model, chain2_id):
-                    _remove_chain(model, chain2_id); removed.add(chain2_id)
-                else:
-                    _remove_chain(model, chain1_id); removed.add(chain1_id)
-        if bonds is not None:
-            return [b for b in bonds if not (set(b.split(",")) & removed)]
+    def resolve_overlaps(self, og_structure, overlaps, bonds=None):
+
+        """
+        Returns
+        -------
+
+        structure_list [List[gemmi.Structure]]
+        bonds_to_add [List[List]]
+        """
+
+        structure_list = []
+        bonds_to_add = []
+
+        if overlaps:
+            for overlap_pair in overlaps:
+
+                structure1 = og_structure.clone()
+                structure2 = og_structure.clone()
+
+                chain1_id, chain2_id = overlap_pair.split(",")
+
+                model1 = structure1[0]
+                model2 = structure2[0]
+                removed1 = set()
+                removed2 = set()
+
+                if _has_chain(model1, chain1_id) and _has_chain(model1, chain2_id):
+
+                    if _count_heavy_atoms(model1, chain1_id) >= 10:
+                        _remove_chain(model1, chain2_id); removed1.add(chain2_id)
+
+                        for other_overlap in overlaps:
+                            if other_overlap != overlap_pair:
+                                other_id1, other_id2 = other_overlap.split(',')
+                                if _count_heavy_atoms(model1, other_id1) >= _count_heavy_atoms(model1, other_id2):
+                                    _remove_chain(model1, other_id2); removed1.add(other_id2)
+                                else:
+                                    _remove_chain(model1, other_id1); removed1.add(other_id1)
+
+                        structure_list.append(structure1)
+                        if bonds is not None:
+                            bonds_to_add.append([b for b in bonds if not (set(b.split(",")) & removed1)])
+
+                    if _count_heavy_atoms(model2, chain2_id) >= 10:
+                        _remove_chain(model2, chain1_id); removed2.add(chain1_id)
+
+                        for other_overlap in overlaps:
+                            if other_overlap != overlap_pair:
+                                other_id1, other_id2 = other_overlap.split(',')
+                                if _count_heavy_atoms(model2, other_id1) >= _count_heavy_atoms(model2, other_id2):
+                                    _remove_chain(model2, other_id2); removed2.add(other_id2)
+                                else:
+                                    _remove_chain(model2, other_id1); removed2.add(other_id1)
+
+                        structure_list.append(structure2)
+                        if bonds is not None:
+                            bonds_to_add.append([b for b in bonds if not (set(b.split(",")) & removed2)])
+
+        else:
+            structure_list.append(og_structure)
+            bonds_to_add.append(bonds)
+
+        return structure_list, bonds_to_add
+            
 
     def merge_bonded_chains(self, structure: gemmi.Structure, bonds: List[str], contact_info):
         """
@@ -1266,67 +1318,76 @@ def _process_pdb(pdb_id):
         overlap_resolver = OverlapResolver()
         contact_info, bonds_to_add, overlaps_to_resolve = overlap_resolver.detect_contacts(structure)
 
-        bonds_to_add = overlap_resolver.resolve_overlaps(structure, overlaps_to_resolve, bonds_to_add)
-        message = overlap_resolver.merge_bonded_chains(structure, bonds_to_add, contact_info)
-        if message == 'alarm':
-            return flags
-
-        # 3.2: save cleaned mmCIF structure
-        _assign_subchain_ids(structure)
-        structure.setup_entities()      # rebuild entity table to match new subchains
-        structure.make_mmcif_document().write_file(f'{DATA_DIR}/mmCIF/clean/{pdb_id}.cif')
-
-        # Step 4: select possible ligand chains
-        ligand_chains = select_ligand_chains(structure)
-        print(f'{pdb_id} - {ligand_chains}')
-
-        # Step 5: loop over ligand chains
-        for chain_id in ligand_chains:
-
-            # 5.1: Any unresolved ligand atoms?
-            fully_resolved = detect_unresolved_ligand_atoms(structure, chain_id)
-            if fully_resolved:
-
-                # 5.2: convert to PDB
-                ccd_codes = [res.name for res in structure[0][chain_id]]
-                lig_name = '-'.join(ccd_codes)
-
-                new_structure = build_pdb(structure, chain_id)
-                contact_info, bonds_to_add, overlaps_to_resolve = overlap_resolver.detect_contacts(new_structure)
-                message = overlap_resolver.merge_bonded_chains(new_structure, bonds_to_add, contact_info)
+        structure_list, bonds_list = overlap_resolver.resolve_overlaps(structure, overlaps_to_resolve, bonds_to_add)
+        for structure, bonds_to_add in zip(structure_list, bonds_list):
+            try:
+                message = overlap_resolver.merge_bonded_chains(structure, bonds_to_add, contact_info)
                 if message == 'alarm':
-                    continue
-                basename = f'{pdb_id}_{chain_id}'
+                    return flags
 
-                opts = gemmi.PdbWriteOptions()
-                opts.ter_ignores_type = True   # only emit TER when the chain name actually changes
+                # 3.2: save cleaned mmCIF structure
+                _assign_subchain_ids(structure)
+                structure.setup_entities()      # rebuild entity table to match new subchains
+                structure.make_mmcif_document().write_file(f'{DATA_DIR}/mmCIF/clean/{pdb_id}.cif')
 
-                new_structure.write_pdb(f'{DATA_DIR}/pdb/raw/{basename}.pdb', opts)
+                # Step 4: select possible ligand chains
+                ligand_chains = select_ligand_chains(structure)
+                print(f'{pdb_id} - {ligand_chains}')
 
-                # 5.3 missing and nonstand residues with PDBFixer
-                update_element_positions(f'{DATA_DIR}/pdb/raw/{basename}.pdb')
-                ligand_coords = _get_chain_coords(new_structure, 'Z')
+                # Step 5: loop over ligand chains
+                for chain_id in ligand_chains:
+                    try:
 
-                fixer_status = fix_missing_and_nonstandard_residues(basename, ligand_coords)
+                        # 5.1: Any unresolved ligand atoms?
+                        fully_resolved = detect_unresolved_ligand_atoms(structure, chain_id)
+                        if fully_resolved:
 
-                if fixer_status == 'ok':
-                    checker_status = check_structure(basename)
-                    if not checker_status:
-                        os.remove(f'{DATA_DIR}/pdb/fixed/{basename}.pdb')
-                
-                if fixer_status == 'modified_in_shell':
-                    flags['has_modified_residues_in_shell'] = True
-                    flags['failure_reason'] = 'modified_residues_in_shell'
-                elif fixer_status == 'missing_atoms_in_shell':
-                    flags['has_missing_atoms_in_shell'] = True
-                    flags['failure_reason'] = 'missing_atoms_in_shell'
-                elif fixer_status == 'unknown_residue':
-                    flags['failure_reason'] = 'unknown_residue'
-                elif fixer_status == 'branched_in_shell':
-                    flags['has_branched_residues_in_shell'] = True
-                    flags['failure_reason'] = 'branched_residues_in_shell'
-                elif fixer_status is None:
-                    flags['failure_reason'] = 'null_elements_in_topology'
+                            # 5.2: convert to PDB
+                            ccd_codes = [res.name for res in structure[0][chain_id]]
+                            lig_name = '-'.join(ccd_codes)
+
+                            new_structure = build_pdb(structure, chain_id)
+                            lig_contact_info, lig_bonds, lig_overlaps = overlap_resolver.detect_contacts(new_structure)
+                            message = overlap_resolver.merge_bonded_chains(new_structure, lig_bonds, lig_contact_info)
+                            if message == 'alarm':
+                                continue
+                            basename = f'{pdb_id}_{chain_id}'
+
+                            opts = gemmi.PdbWriteOptions()
+                            opts.ter_ignores_type = True   # only emit TER when the chain name actually changes
+
+                            new_structure.write_pdb(f'{DATA_DIR}/pdb/raw/{basename}.pdb', opts)
+
+                            # 5.3 missing and nonstand residues with PDBFixer
+                            update_element_positions(f'{DATA_DIR}/pdb/raw/{basename}.pdb')
+                            ligand_coords = _get_chain_coords(new_structure, 'Z')
+
+                            fixer_status = fix_missing_and_nonstandard_residues(basename, ligand_coords)
+
+                            if fixer_status == 'ok':
+                                checker_status = check_structure(basename)
+                                if not checker_status:
+                                    os.remove(f'{DATA_DIR}/pdb/fixed/{basename}.pdb')
+                            
+                            if fixer_status == 'modified_in_shell':
+                                flags['has_modified_residues_in_shell'] = True
+                                flags['failure_reason'] = 'modified_residues_in_shell'
+                            elif fixer_status == 'missing_atoms_in_shell':
+                                flags['has_missing_atoms_in_shell'] = True
+                                flags['failure_reason'] = 'missing_atoms_in_shell'
+                            elif fixer_status == 'unknown_residue':
+                                flags['failure_reason'] = 'unknown_residue'
+                            elif fixer_status == 'branched_in_shell':
+                                flags['has_branched_residues_in_shell'] = True
+                                flags['failure_reason'] = 'branched_residues_in_shell'
+                            elif fixer_status is None:
+                                flags['failure_reason'] = 'null_elements_in_topology'
+
+                    except Exception as e:
+                        continue
+
+            except Exception as e:
+                continue
 
     except Exception as e:
         print(f'{pdb_id} - {e}')
@@ -1437,7 +1498,8 @@ def fix_structures(num_cores = 1):
             shutil.copyfileobj(gz, f, length=1 << 20)  # 1 MB chunks
     _load_ccd_cache()
 
-    fixed_set = set([x[:4] for x in os.listdir(f'{DATA_DIR}/pdb/fixed')])
+    #fixed_set = set([x[:4] for x in os.listdir(f'{DATA_DIR}/pdb/fixed')])
+    fixed_set = set() # empty set, re-run for everything
     pdb_list = [x[:4] for x in os.listdir(f'{DATA_DIR}/mmCIF/raw') if not x[:4] in fixed_set]
     n_total = len(pdb_list)
 
@@ -1487,4 +1549,4 @@ def fix_structures(num_cores = 1):
                 f.write(f"  {exc}\n")
 
 if __name__ == '__main__':
-	main('3oii')
+	main('3fiv')

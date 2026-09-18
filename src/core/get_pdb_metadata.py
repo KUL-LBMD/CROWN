@@ -12,8 +12,37 @@ METADATA_CSV = Path(f'{DATA_DIR}/metadata/pdb_xray_metadata.csv')
 CRYO_CSV = Path(f'{DATA_DIR}/metadata/pdb_cryo_metadata.csv')
 BATCH_SIZE = 1000  # GraphQL batch size
 
+
+def _extract_organisms(entry: dict) -> tuple[str, str]:
+    """Collect unique source organisms and expression hosts across all polymer entities.
+
+    A structure can have multiple polymer entities, and each entity can list
+    multiple source/host organisms, so we dedupe (preserving order) and join
+    with '; '. Returns ("", "") when nothing is annotated.
+    """
+    source_names: list[str] = []
+    source_names_scientific: list[str] = []
+    host_names: list[str] = []
+    for pe in entry.get("polymer_entities") or []:
+        for src in pe.get("rcsb_entity_source_organism") or []:
+            name = (src or {}).get("ncbi_scientific_name")
+            if name and name not in source_names:
+                source_names_scientific.append(name)
+
+            name = (src or {}).get("scientific_name")
+            if name and name not in source_names:
+                source_names.append(name)
+
+        for host in pe.get("rcsb_entity_host_organism") or []:
+            name = (host or {}).get("ncbi_scientific_name")
+            if name and name not in host_names:
+                host_names.append(name)
+    return "; ".join(source_names), "; ".join(source_names_scientific), "; ".join(host_names)
+
+
 def fetch_xray_pdb_ids() -> set[str]:
-    """Query RCSB for X-ray structures < 3 Å and write pdb_id, resolution, R-free to CSV.
+    """Query RCSB for X-ray structures < 3 Å and write pdb_id, resolution, R-free,
+    source organism and expression system to CSV.
 
     Still returns the set of PDB IDs so the rsync-filtering step downstream keeps working.
     """
@@ -51,20 +80,24 @@ def fetch_xray_pdb_ids() -> set[str]:
     ids = [hit["identifier"] for hit in resp.json()["result_set"]]
     print(f"  Found {len(ids):,} matching entries")
 
-    # Fetch resolution and R-free from the Data API
+    # Fetch resolution, R-free, source organism and expression host from the Data API
     gql = """
     query($ids: [String!]!) {
       entries(entry_ids: $ids) {
         rcsb_id
         rcsb_entry_info { resolution_combined }
         refine { ls_R_factor_R_free }
+        polymer_entities {
+          rcsb_entity_source_organism { ncbi_scientific_name }
+          rcsb_entity_host_organism { ncbi_scientific_name }
+        }
       }
     }
     """
     print(f"  Fetching metadata in batches of {BATCH_SIZE}...")
     with METADATA_CSV.open("w", newline="") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["pdb_id", "resolution", "r_free"])
+        writer.writerow(["pdb_id", "resolution", "r_free", "source_organism", "source_organism_ncbi", "expression_system"])
         for i in range(0, len(ids), BATCH_SIZE):
             batch = ids[i : i + BATCH_SIZE]
             r = requests.post(
@@ -79,14 +112,24 @@ def fetch_xray_pdb_ids() -> set[str]:
                 resolution = res_list[0] if res_list else ""
                 refine = entry.get("refine") or []
                 rfree = refine[0].get("ls_R_factor_R_free") if refine else ""
-                writer.writerow([entry["rcsb_id"].lower(), resolution, rfree if rfree is not None else ""])
+                source_organism, source_organism_ncbi, expression_system = _extract_organisms(entry)
+                writer.writerow([
+                    entry["rcsb_id"].lower(),
+                    resolution,
+                    rfree if rfree is not None else "",
+                    source_organism,
+                    source_organism_ncbi,
+                    expression_system,
+                ])
             print(f"    {min(i + BATCH_SIZE, len(ids)):,} / {len(ids):,}")
             time.sleep(0.1)  # be polite
 
     print(f"  Wrote metadata to {METADATA_CSV}")
 
+
 def fetch_cryo_pdb_ids() -> set[str]:
-    """Query RCSB for X-ray structures < 3 Å and write pdb_id, resolution, R-free to CSV.
+    """Query RCSB for cryo-EM structures < 3 Å and write pdb_id, resolution,
+    source organism and expression system to CSV.
 
     Still returns the set of PDB IDs so the rsync-filtering step downstream keeps working.
     """
@@ -124,19 +167,23 @@ def fetch_cryo_pdb_ids() -> set[str]:
     ids = [hit["identifier"] for hit in resp.json()["result_set"]]
     print(f"  Found {len(ids):,} matching entries")
 
-    # Fetch resolution and R-free from the Data API
+    # Fetch resolution, source organism and expression host from the Data API
     gql = """
     query($ids: [String!]!) {
         entries(entry_ids: $ids) {
         rcsb_id
         rcsb_entry_info { resolution_combined }
+        polymer_entities {
+          rcsb_entity_source_organism { ncbi_scientific_name }
+          rcsb_entity_host_organism { ncbi_scientific_name }
+        }
         }
     }
     """
     print(f"  Fetching metadata in batches of {BATCH_SIZE}...")
     with CRYO_CSV.open("w", newline="") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["pdb_id", "resolution"])
+        writer.writerow(["pdb_id", "resolution", "source_organism", "source_organism_ncbi", "expression_system"])
         for i in range(0, len(ids), BATCH_SIZE):
             batch = ids[i : i + BATCH_SIZE]
             r = requests.post(
@@ -149,11 +196,19 @@ def fetch_cryo_pdb_ids() -> set[str]:
                     continue  # obsolete / withdrawn
                 res_list = (entry.get("rcsb_entry_info") or {}).get("resolution_combined") or []
                 resolution = res_list[0] if res_list else ""
-                writer.writerow([entry["rcsb_id"].lower(), resolution if resolution is not None else ""])
+                source_organism, source_organism_ncbi, expression_system = _extract_organisms(entry)
+                writer.writerow([
+                    entry["rcsb_id"].lower(),
+                    resolution if resolution is not None else "",
+                    source_organism,
+                    source_organism_ncbi,
+                    expression_system,
+                ])
             print(f"    {min(i + BATCH_SIZE, len(ids)):,} / {len(ids):,}")
             time.sleep(0.1)  # be polite
 
     print(f"  Wrote metadata to {CRYO_CSV}")
+
 
 def get_pdb_metadata():
 
@@ -167,3 +222,7 @@ def get_pdb_metadata():
     cryo_df['experimental_method'] = 'Cryo-EM'
     final_df = pd.concat([xray_df, cryo_df], axis = 0, ignore_index = True)
     final_df.to_csv(f'{DATA_DIR}/metadata/pdb_metadata.csv', index = False, float_format = '%.6f')
+
+
+if __name__ == '__main__':
+    get_pdb_metadata()
