@@ -7,12 +7,13 @@
 [![bioRxiv](https://img.shields.io/badge/bioRxiv-2026.03.30.714168-b31b1b)](https://doi.org/10.64898/2026.03.30.714168)
 [![License: CC BY 4.0](https://img.shields.io/badge/License-CC%20BY%204.0-lightgrey)](https://creativecommons.org/licenses/by/4.0/)
 
-CROWN is a protein–ligand interaction database of **178,263** carefully curated
+CROWN is a protein–ligand interaction database of **193,374** carefully curated
 structures focused on well-resolved non-covalent interactions. The dataset is
 produced by a fully automated, open-source preprocessing pipeline, documented and
 implemented in this repository.
 
-<img width="1181" height="871" alt="CROWN overview" src="https://github.com/user-attachments/assets/beb3107f-6a2f-4488-b60d-85c82b2e9978" />
+<img width="1400" height="875" alt="image" src="https://github.com/user-attachments/assets/0ace89a5-ce8a-4b4a-b97c-d38a311213c0" />
+
 
 ## Resources
 
@@ -42,16 +43,17 @@ python scripts/process_crown.py
 
 ## Dataset contents
 
-The [Zenodo record](https://zenodo.org/records/20825315) contains the following files:
+The [Zenodo record](https://zenodo.org/records/22828033) contains the following files:
 
 | File | Description |
 | --- | --- |
-| `crown.tar.gz` | Protein–ligand complex structures in CROWN. |
+| `crown.tar.zst` | Protein–ligand complex structures in CROWN. |
 | `CROWN_metadata.parquet` | Metadata for the dataset (one row per complex). |
 | `CROWN_combined_mst.parquet` | Minimum spanning trees of the CROWN cluster metrics. |
+| `plinder_mapped.parquet` | Metadata on PDBBind, HiQBind, BioLiP, PLInder and SPINDR, needed to reproduce Table 1 |
 | `README.md` | Description of the structural dataset and of every metadata column. |
 
-Unzipping the tarball with `tar -xzvf crown.tar.gz` yields the directory
+Unzipping the tarball with `zstd -dc --long=27 crown.tar.zst | tar -xf -` yields the directory
 `complexes/`, with one subdirectory per complex named by PDB ID and binding-chain
 label. For example, `complexes/3zwe_F/` contains:
 
@@ -72,8 +74,8 @@ CROWN entries are clustered along four complementary similarity metrics:
 | Metric | What it measures | Metadata columns | MST `metric` value |
 | --- | --- | --- | --- |
 | Protein sequence | Similarity of the target protein sequence(s) | `0.5/0.7/0.9 seq-sim cluster` | `seq-sim` |
-| Binding pocket | Structural similarity of the binding-pocket residues | `0.5/0.7/0.9 pocketsim cluster` | `pocket-sim` |
-| Ligand | Chemical similarity of the ligands | `0.5/0.7/0.9 ligsim cluster` | `lig-sim` |
+| Binding pocket | Structural similarity of the binding-pocket residues | `0.5/0.7/0.9 pocket-sim cluster` | `pocket-sim` |
+| Ligand | Chemical similarity of the ligands | `0.5/0.7/0.9 lig-sim cluster` | `lig-sim` |
 | Protein–ligand interaction | Similarity of the protein–ligand interaction patterns | `0.5/0.7/0.9 pli-sim cluster` | `pli-sim` |
 
 ### Pre-computed cluster labels
