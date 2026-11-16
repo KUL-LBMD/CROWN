@@ -11,11 +11,12 @@ from openmm.app import PDBFile, Modeller
 import numpy as np
 import pandas as pd
 from scipy.spatial import KDTree
-from typing import Dict, List, Tuple, Set
-from dataclasses import dataclass
+from typing import Dict, List, Tuple, Set, Optional
+from dataclasses import dataclass, field
 from collections import defaultdict
 from itertools import product
 import random
+import pickle
 
 # File management
 import os
@@ -65,6 +66,52 @@ CUSTOM_SUBSTITUTIONS = {'SEC': 'CYS', '0A8': 'CYS', 'MSE': 'MET'}
 
 CLASH_RADIUS = 1.8
 CHAIN_RADIUS = 4.0
+
+# ── Annotated covalent bonds (_struct_conn) ──
+# conn_type_id values that denote a covalent bond. 'covale_base', 'covale_sugar'
+# and 'covale_phosphate' only occur in older (NDB-derived) nucleic-acid entries.
+COVALENT_CONN_TYPES = {'covale', 'covale_base', 'covale_sugar', 'covale_phosphate', 'disulf'}
+# Never treated as covalent, even when pdbx_role is filled in.
+NONCOVALENT_CONN_TYPES = {'metalc', 'hydrog', 'saltbr', 'mismat', 'modres'}
+
+# Single-bond covalent radii (Å, Cordero et al. 2008; sp3 C) for VALID_BOND_ATOMS.
+COVALENT_RADII = {'C': 0.76, 'N': 0.71, 'O': 0.66, 'S': 1.05, 'P': 1.07, 'B': 0.84}
+# An annotated bond is accepted if d <= r1 + r2 + tolerance. This guards against
+# annotations that point at an altloc we discarded or at a badly modelled pair.
+ANNOTATED_BOND_TOLERANCE = 0.45
+
+# ── Distance-only bond candidates (no _struct_conn record) ──
+# Accepted only if they pass all four checks in _check_distance_bond:
+#   1. element-pair distance: MIN_BOND_FRACTION*(r1+r2) <= d <= r1+r2+DISTANCE_BOND_TOLERANCE,
+#      and the element pair is not in FORBIDDEN_DISTANCE_PAIRS
+#   2. a standard amino-acid partner must bond through a known nucleophile atom
+#   3. a non-standard partner atom must have spare valence according to the CCD
+#   4. all bond angles at both partner atoms lie within BOND_ANGLE_RANGE
+DISTANCE_BOND_TOLERANCE = 0.40
+MIN_BOND_FRACTION = 0.75
+# O–O, N–O and N–N contacts between chains are practically never covalent bonds
+FORBIDDEN_DISTANCE_PAIRS = {frozenset({'O'}), frozenset({'N', 'O'}), frozenset({'N'})}
+BOND_ANGLE_RANGE = (85.0, 150.0)  # degrees; spans S (~100°), sp3 (~109°) and sp2 (~120°)
+
+# Side-chain atoms of standard residues that form covalent bonds to ligands /
+# glycans. A free alpha-amine ('N' with a single heavy neighbour) is also allowed.
+NUCLEOPHILE_ATOMS = {
+    'CYS': {'SG'}, 'SER': {'OG'}, 'THR': {'OG1'}, 'TYR': {'OH'}, 'LYS': {'NZ'},
+    'HIS': {'ND1', 'NE2'}, 'ASP': {'OD1', 'OD2'}, 'GLU': {'OE1', 'OE2'},
+    'ASN': {'ND2'},   # N-glycosylation
+    'TRP': {'CD1'},   # C-mannosylation
+}
+# Force-field / terminal residue names -> standard names
+RESNAME_ALIASES = {'CYX': 'CYS', 'HID': 'HIS', 'HIE': 'HIS'}
+
+# Neighbour-search radius for bond candidates; must cover the longest allowed
+# bond above (P–P: 2.14 + 0.45 ≈ 2.6 Å).
+BOND_SEARCH_RADIUS = 3.0
+
+# Compact per-atom bonding table derived from components.cif (check 3)
+CCD_COMPONENTS_PATH = f'{DATA_DIR}/mmCIF/ccd/components.cif'
+CCD_BONDING_CACHE_PATH = f'{DATA_DIR}/mmCIF/ccd/ccd_bonding.pkl'
+
 SHELL_RADIUS = 6.0
 
 MAX_TERMINAL_EXTENSION = 3
@@ -243,6 +290,440 @@ class ResidueContact:
     res2: int
     contact_count: int
     atom_pairs: List[Tuple]
+    # Atom pairs accepted as covalent bonds (_struct_conn or distance + checks).
+    # These are always listed first in atom_pairs.
+    bond_pairs: List[Tuple] = field(default_factory=list)
+    # 'bond', 'overlap' or 'none' (only rejected candidates / a single clash)
+    classification: str = 'none'
+    # Reporting: one dict per accepted bond / rejected distance-only candidate
+    bond_records: List[dict] = field(default_factory=list)
+    rejected_records: List[dict] = field(default_factory=list)
+
+
+@dataclass
+class AnnotatedBondIndex:
+    """Annotated bonds mapped onto atom serial numbers."""
+    partners: Dict[int, Set[int]] = field(default_factory=dict)
+    # frozenset({serial1, serial2}) -> (conn_id, conn_type, role)
+    meta: Dict[frozenset, Tuple[str, str, Optional[str]]] = field(default_factory=dict)
+
+
+@dataclass
+class AnnotatedBond:
+    """One covalent _struct_conn record, resolved to raw atom coordinates."""
+    conn_id: str
+    conn_type: str
+    role: Optional[str]
+    # Rounded coordinates of each partner; one entry per matching altloc
+    partner1: List[Tuple[float, float, float]]
+    partner2: List[Tuple[float, float, float]]
+
+
+def _pos_key(x: float, y: float, z: float) -> Tuple[float, float, float]:
+    """Coordinate key for exact atom matching (mmCIF stores 3 decimals)."""
+    return (round(x, 3), round(y, 3), round(z, 3))
+
+
+def _cif_value(row, idx: int) -> Optional[str]:
+    """Return an unquoted CIF value, or None if the column is absent or the value is ?/."""
+    if not row.has(idx):
+        return None
+    raw = row[idx]
+    if gemmi.cif.is_null(raw):
+        return None
+    return gemmi.cif.as_string(raw)
+
+
+def read_annotated_covalent_bonds(cif_path: str) -> List[AnnotatedBond]:
+    """
+    Read covalent bonds annotated in _struct_conn of the raw mmCIF file.
+
+    A record is kept if its conn_type_id is covalent (covale*, disulf), or if
+    _struct_conn.pdbx_role is filled in (e.g. 'N-Glycosylation') and the
+    conn_type_id is not explicitly non-covalent (metalc, hydrog, ...).
+
+    Partners are resolved against _atom_site of the *same* file using the
+    author chain / residue number / insertion code plus label comp/atom IDs,
+    and are returned as coordinates. Coordinates (rather than names) are the
+    bridge to the processed structure because chain names and residue
+    numbers change later on (artifact removal, chain merging, symmetry
+    expansion), while coordinates of the ASU copy do not.
+
+    Parameters
+    ----------
+    cif_path [str]: path to the raw mmCIF file
+
+    Returns
+    -------
+    List[AnnotatedBond]
+    """
+    try:
+        block = gemmi.cif.read(cif_path).sole_block()
+    except Exception as e:
+        print(f'Warning: could not read _struct_conn from {cif_path}: {e}')
+        return []
+
+    conn_table = block.find('_struct_conn.', [
+        'id', 'conn_type_id',                                                         # 0, 1
+        'ptnr1_auth_asym_id', 'ptnr1_auth_seq_id', 'ptnr1_label_comp_id', 'ptnr1_label_atom_id',  # 2-5
+        'ptnr2_auth_asym_id', 'ptnr2_auth_seq_id', 'ptnr2_label_comp_id', 'ptnr2_label_atom_id',  # 6-9
+        '?pdbx_ptnr1_PDB_ins_code', '?pdbx_ptnr1_label_alt_id',                       # 10, 11
+        '?pdbx_ptnr2_PDB_ins_code', '?pdbx_ptnr2_label_alt_id',                       # 12, 13
+        '?pdbx_role',                                                                 # 14
+    ])
+    if len(conn_table) == 0:
+        return []
+
+    # ── 1. Select covalent records and the atom keys they reference ──
+    # key = (auth_asym_id, auth_seq_id, ins_code, comp_id, atom_id); alt '' = any altloc
+    records = []
+    wanted = set()
+    for row in conn_table:
+        conn_type = (_cif_value(row, 1) or '').lower()
+        role = _cif_value(row, 14)
+        if conn_type in NONCOVALENT_CONN_TYPES:
+            continue
+        if conn_type not in COVALENT_CONN_TYPES and role is None:
+            continue
+
+        partners = []
+        for base, ins_idx, alt_idx in ((2, 10, 11), (6, 12, 13)):
+            key = (
+                _cif_value(row, base) or '',
+                _cif_value(row, base + 1) or '',
+                _cif_value(row, ins_idx) or '',
+                _cif_value(row, base + 2) or '',
+                normalize(_cif_value(row, base + 3) or ''),
+            )
+            partners.append((key, _cif_value(row, alt_idx) or ''))
+            wanted.add(key)
+
+        records.append((_cif_value(row, 0) or '', conn_type, role, partners))
+
+    if not records:
+        return []
+
+    # ── 2. One pass over _atom_site (first model only) ──
+    atom_table = block.find('_atom_site.', [
+        'auth_asym_id', 'auth_seq_id', 'label_comp_id', 'label_atom_id',  # 0-3
+        'Cartn_x', 'Cartn_y', 'Cartn_z',                                  # 4-6
+        '?pdbx_PDB_ins_code', '?label_alt_id', '?pdbx_PDB_model_num',     # 7-9
+    ])
+    coords_by_key: Dict[tuple, List[Tuple[str, tuple]]] = defaultdict(list)
+    first_model = None
+    for row in atom_table:
+        model_num = _cif_value(row, 9)
+        if first_model is None:
+            first_model = model_num
+        elif model_num != first_model:
+            continue
+        key = (
+            gemmi.cif.as_string(row[0]),
+            gemmi.cif.as_string(row[1]),
+            _cif_value(row, 7) or '',
+            gemmi.cif.as_string(row[2]),
+            normalize(gemmi.cif.as_string(row[3])),
+        )
+        if key not in wanted:
+            continue
+        xyz = _pos_key(float(row[4]), float(row[5]), float(row[6]))
+        coords_by_key[key].append((_cif_value(row, 8) or '', xyz))
+
+    # ── 3. Resolve partners to coordinates ──
+    bonds = []
+    for conn_id, conn_type, role, partners in records:
+        resolved = []
+        for key, alt in partners:
+            hits = coords_by_key.get(key, [])
+            # A specific altloc in _struct_conn also matches atoms without altloc
+            if alt:
+                hits = [h for h in hits if h[0] in (alt, '')]
+            resolved.append([xyz for _, xyz in hits])
+        if resolved[0] and resolved[1]:
+            bonds.append(AnnotatedBond(conn_id, conn_type, role, resolved[0], resolved[1]))
+
+    return bonds
+
+
+def tag_annotated_bonds(structure: gemmi.Structure, annotated_bonds: List[AnnotatedBond]) -> AnnotatedBondIndex:
+    """
+    Map annotated bonds onto the processed structure.
+
+    Every atom gets a unique serial number. Annotated partners are located by
+    exact coordinate match and stored as a serial -> {partner serials} map.
+    Serials survive Structure/Chain/Residue.clone(), so the same index stays
+    valid after resolve_overlaps, merge_bonded_chains and build_pdb (symmetry
+    copies share serials; detect_contacts picks the right copy by distance).
+
+    Call this after select_conformer, so bonds to discarded altlocs drop out.
+
+    Parameters
+    ----------
+    structure [gemmi.Structure]: processed structure (modified in place: serials)
+    annotated_bonds [List[AnnotatedBond]]: output of read_annotated_covalent_bonds
+
+    Returns
+    -------
+    AnnotatedBondIndex
+    """
+    serial = 0
+    for model in structure:
+        for chain in model:
+            for residue in chain:
+                for atom in residue:
+                    serial += 1
+                    atom.serial = serial
+
+    index = AnnotatedBondIndex()
+    if not annotated_bonds:
+        return index
+
+    pos_to_serial = {}
+    for chain in structure[0]:
+        for residue in chain:
+            for atom in residue:
+                pos_to_serial[_pos_key(atom.pos.x, atom.pos.y, atom.pos.z)] = atom.serial
+
+    partners: Dict[int, Set[int]] = defaultdict(set)
+    for bond in annotated_bonds:
+        s1 = {pos_to_serial[k] for k in bond.partner1 if k in pos_to_serial}
+        s2 = {pos_to_serial[k] for k in bond.partner2 if k in pos_to_serial}
+        for a, b in product(s1, s2):
+            if a != b:
+                partners[a].add(b)
+                partners[b].add(a)
+                index.meta[frozenset((a, b))] = (bond.conn_id, bond.conn_type, bond.role)
+
+    index.partners = dict(partners)
+    return index
+
+
+### CCD bonding table (check 3) ###
+#----------------------------------
+
+_CCD_BONDING = None
+
+
+def _build_ccd_bonding(components_path: str = CCD_COMPONENTS_PATH) -> Dict[str, Dict[str, Optional[tuple]]]:
+    """
+    Parse components.cif into a compact table for the spare-valence check.
+
+    Result: {comp_id: {heavy_atom_name: None | (heavy neighbour names, ...)}}
+      None   -> the atom can always form one more bond: it carries a hydrogen,
+                is boron (Lewis acid, e.g. boronic acid + Ser), is a carbon in a
+                non-aromatic double/triple bond (Michael acceptor, carbonyl,
+                nitrile), or is bonded to a CCD leaving atom.
+      tuple  -> the atom is saturated in the CCD definition; it only has spare
+                valence if one of these heavy neighbours is absent from the
+                model (an unflagged leaving group, e.g. a displaced halide).
+    """
+    doc = gemmi.cif.read(components_path)
+    table = {}
+    for block in doc:
+        atoms = block.find('_chem_comp_atom.', ['atom_id', 'type_symbol', '?pdbx_leaving_atom_flag'])
+        if len(atoms) == 0:
+            continue
+
+        element = {}
+        leaving = set()
+        for row in atoms:
+            name = normalize(gemmi.cif.as_string(row[0]))
+            element[name] = gemmi.cif.as_string(row[1]).upper()
+            if row.has(2) and gemmi.cif.as_string(row[2]).upper() == 'Y':
+                leaving.add(name)
+
+        n_hydrogens = defaultdict(int)
+        heavy_neighbours = defaultdict(list)
+        unsaturated = set()
+        for row in block.find('_chem_comp_bond.', ['atom_id_1', 'atom_id_2', 'value_order', '?pdbx_aromatic_flag']):
+            a = normalize(gemmi.cif.as_string(row[0]))
+            b = normalize(gemmi.cif.as_string(row[1]))
+            order = gemmi.cif.as_string(row[2]).upper()
+            aromatic = row.has(3) and gemmi.cif.as_string(row[3]).upper() == 'Y'
+            for x, y in ((a, b), (b, a)):
+                if element.get(y) in ('H', 'D'):
+                    n_hydrogens[x] += 1
+                else:
+                    heavy_neighbours[x].append(y)
+            if order in ('DOUB', 'TRIP') and not aromatic:
+                unsaturated.update((a, b))
+
+        comp = {}
+        for name, el in element.items():
+            if el in ('H', 'D'):
+                continue
+            spare = (
+                n_hydrogens[name] > 0
+                or el == 'B'
+                or (el == 'C' and name in unsaturated)
+                or any(n in leaving for n in heavy_neighbours[name])
+            )
+            comp[name] = None if spare else tuple(heavy_neighbours[name])
+        table[block.name] = comp
+
+    return table
+
+
+def build_ccd_bonding_cache(components_path: str = CCD_COMPONENTS_PATH,
+                            cache_path: str = CCD_BONDING_CACHE_PATH):
+    """(Re)build the pickled CCD bonding table and load it into this process."""
+    global _CCD_BONDING
+    table = _build_ccd_bonding(components_path)
+    tmp_path = f'{cache_path}.tmp'
+    with open(tmp_path, 'wb') as fh:
+        pickle.dump(table, fh, protocol=pickle.HIGHEST_PROTOCOL)
+    os.replace(tmp_path, cache_path)  # atomic: workers never see a half-written file
+    _CCD_BONDING = table
+    return table
+
+
+def _get_ccd_bonding() -> Dict[str, Dict[str, Optional[tuple]]]:
+    """Lazily load the CCD bonding table (built from components.cif if missing)."""
+    global _CCD_BONDING
+    if _CCD_BONDING is None:
+        if os.path.exists(CCD_BONDING_CACHE_PATH):
+            with open(CCD_BONDING_CACHE_PATH, 'rb') as fh:
+                _CCD_BONDING = pickle.load(fh)
+        elif os.path.exists(CCD_COMPONENTS_PATH):
+            build_ccd_bonding_cache()
+        else:
+            print(f'Warning: {CCD_COMPONENTS_PATH} not found; distance-only bonds to '
+                  f'non-standard residues will be rejected (check 3)')
+            _CCD_BONDING = {}
+    return _CCD_BONDING
+
+
+### Covalent bond checks ###
+#---------------------------
+
+def _max_bond_length(el1: str, el2: str, tolerance: float) -> float:
+    return COVALENT_RADII.get(el1, 0.77) + COVALENT_RADII.get(el2, 0.77) + tolerance
+
+
+def _base_resname(name: str) -> str:
+    """Map force-field / terminal names (CYX, NALA, CSER, ...) to standard names."""
+    if len(name) == 4 and name[0] in 'NC' and name[1:] in STANDARD_AA:
+        name = name[1:]
+    return RESNAME_ALIASES.get(name, name)
+
+
+def _backbone_link_first(atom_pair) -> int:
+    """Sort key: peptide (C–N) and phosphodiester (O3'–P) links first, so that
+    merge_bonded_chains, which inspects atom_pairs[0], sees them."""
+    names = sorted([atom_pair[0][2], atom_pair[1][2]])
+    return 0 if names in (['C', 'N'], ["O3'", 'P']) else 1
+
+
+def _is_backbone_link(res1: gemmi.Residue, atom1: gemmi.Atom, res2: gemmi.Residue, atom2: gemmi.Atom) -> bool:
+    """Peptide bond between two amino acids or phosphodiester between two nucleotides."""
+    names = sorted([atom1.name, atom2.name])
+    if names == ['C', 'N']:
+        marker = 'CA'
+    elif names == ["O3'", 'P']:
+        marker = "C1'"
+    else:
+        return False
+    return all(any(a.name == marker for a in res) for res in (res1, res2))
+
+
+def _bonded_neighbour_positions(ns: gemmi.NeighborSearch, model: gemmi.Model, center: gemmi.Position,
+                                center_element: str, chain_name: str) -> List[gemmi.Position]:
+    """
+    Heavy atoms of the same chain bonded (by distance) to the atom at `center`.
+
+    Searching around a *position* rather than an atom keeps everything in one
+    frame when `center` is a symmetry image of the original atom.
+    """
+    neighbours = []
+    for mark in ns.find_atoms(center, '\0', radius=BOND_SEARCH_RADIUS):
+        d = center.dist(mark.pos)
+        if d < 0.1:  # the atom itself
+            continue
+        cra = mark.to_cra(model)
+        if cra.chain.name != chain_name or cra.atom.is_hydrogen():
+            continue
+        if d <= _max_bond_length(center_element, cra.atom.element.name, DISTANCE_BOND_TOLERANCE):
+            neighbours.append(mark.pos)
+    return neighbours
+
+
+def _angle(a: gemmi.Position, center: gemmi.Position, b: gemmi.Position) -> float:
+    v1 = np.array([a.x - center.x, a.y - center.y, a.z - center.z])
+    v2 = np.array([b.x - center.x, b.y - center.y, b.z - center.z])
+    cos = np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))
+    return float(np.degrees(np.arccos(np.clip(cos, -1.0, 1.0))))
+
+
+def _has_spare_valence(residue: gemmi.Residue, atom_name: str) -> Tuple[bool, Optional[str]]:
+    """Check 3: can this atom of a non-standard residue form one more bond?"""
+    comp = _get_ccd_bonding().get(residue.name)
+    if comp is None:
+        return False, 'no_ccd_entry'
+    name = normalize(atom_name)
+    if name not in comp:
+        return False, 'atom_not_in_ccd'
+    saturated_neighbours = comp[name]
+    if saturated_neighbours is None:
+        return True, None
+    observed = {normalize(a.name) for a in residue if not a.is_hydrogen()}
+    if any(n not in observed for n in saturated_neighbours):
+        return True, None  # a heavy neighbour was displaced (unflagged leaving group)
+    return False, 'no_spare_valence'
+
+
+def _check_distance_bond(ns: gemmi.NeighborSearch, model: gemmi.Model,
+                         chain1: str, res1: gemmi.Residue, atom1: gemmi.Atom,
+                         chain2: str, res2: gemmi.Residue, atom2: gemmi.Atom,
+                         pos2: gemmi.Position, dist: float) -> Tuple[bool, Optional[str]]:
+    """
+    Decide whether an inter-chain contact without a _struct_conn record is a
+    covalent bond. The caller has already verified d <= r1 + r2 + tolerance.
+
+    `pos2` is the position of atom2 as matched by the neighbour search (it may
+    be a symmetry image), so geometry is evaluated in a single frame.
+
+    Returns (accepted, rejection_reason).
+    """
+    el1, el2 = atom1.element.name, atom2.element.name
+
+    # ── Check 1: element pair and lower distance bound ──
+    if frozenset((el1, el2)) in FORBIDDEN_DISTANCE_PAIRS:
+        return False, 'element_pair'
+    if dist < MIN_BOND_FRACTION * (COVALENT_RADII.get(el1, 0.77) + COVALENT_RADII.get(el2, 0.77)):
+        return False, 'too_short'
+
+    neighbours1 = _bonded_neighbour_positions(ns, model, atom1.pos, el1, chain1)
+    neighbours2 = _bonded_neighbour_positions(ns, model, pos2, el2, chain2)
+
+    # ── Checks 2 & 3: chemistry of each partner ──
+    # Backbone links (peptide / phosphodiester across a chain break) are
+    # validated further by merge_bonded_chains and skip these checks.
+    if not _is_backbone_link(res1, atom1, res2, atom2):
+        for res, atom, neighbours in ((res1, atom1, neighbours1), (res2, atom2, neighbours2)):
+            base = _base_resname(res.name)
+            if base in STANDARD_AA:
+                # Check 2: nucleophilic side-chain atom or free alpha-amine
+                is_free_amine = atom.name == 'N' and len(neighbours) <= 1
+                if atom.name not in NUCLEOPHILE_ATOMS.get(base, ()) and not is_free_amine:
+                    return False, 'not_nucleophile'
+            else:
+                # Check 3: spare valence according to the CCD
+                ok, reason = _has_spare_valence(res, atom.name)
+                if not ok:
+                    return False, reason
+
+    # ── Check 4: bond angles at both partner atoms ──
+    lo, hi = BOND_ANGLE_RANGE
+    for center, other, neighbours in ((atom1.pos, pos2, neighbours1), (pos2, atom1.pos, neighbours2)):
+        for n in neighbours:
+            if not lo <= _angle(n, center, other) <= hi:
+                return False, 'bond_angle'
+
+    return True, None
+
+
+def _atom_label(chain: str, residue: gemmi.Residue, atom: gemmi.Atom) -> str:
+    return f'{chain}/{residue.name}/{residue.seqid.num}{residue.seqid.icode.strip()}/{atom.name}'
 
 def _topological_sort(nodes: Set[str], edges: List[Tuple[str, str]]) -> List[str]:
     """Kahn's algorithm with alphabetical tie-breaking."""
@@ -352,80 +833,157 @@ class OverlapResolver:
     def __init__(self):
         pass
 
-    def detect_contacts(self, structure: gemmi.Structure):
+    def detect_contacts(self, structure: gemmi.Structure, annotated: Optional[AnnotatedBondIndex] = None):
         """
-        Detects all contacts between residues in different chains
+        Detects all contacts and covalent bonds between residues in different chains
+
+        Inter-chain heavy-atom pairs within BOND_SEARCH_RADIUS are evaluated as:
+          - close contact: d < CLASH_RADIUS
+          - covalent bond, accepted if either
+              a. annotated in _struct_conn and d <= r1 + r2 + ANNOTATED_BOND_TOLERANCE, or
+              b. not annotated, d <= r1 + r2 + DISTANCE_BOND_TOLERANCE and the
+                 pair passes all checks in _check_distance_bond (element pair,
+                 nucleophile, CCD valence, bond angles).
+            Distance-only candidates that fail a check are kept as rejected
+            records for reporting.
+
+        Classification per chain pair:
+          - accepted bond(s), no other close contact     -> bond
+            (covers multiple bonds, e.g. heme c thioethers)
+          - accepted bond(s) + unexplained close contacts -> overlap
+          - no accepted bond, >= 2 close contacts         -> overlap
+          - no accepted bond, <= 1 close contact          -> none (left as is)
 
         Parameters
         ----------
         structure [gemmi.Structure]
+        annotated [AnnotatedBondIndex]: from tag_annotated_bonds; None means
+            no _struct_conn information (distance-only candidates only).
 
         Returns
         -------
         Tuple of:
             - Dictionary of contacts (key: sorted chain pair, value: ResidueContact)
-            - List of chain pairs with 1 contact (bonds to add)
-            - List of chain pairs with multiple contacts (overlaps to resolve)
+            - List of chain pairs to bond
+            - List of chain pairs with overlaps to resolve
         """
 
         model = structure[0]
+        annotated = annotated or AnnotatedBondIndex()
 
-        # Single search tree at the larger radius; we query sub-radii later
-        ns = gemmi.NeighborSearch(model, structure.cell, CLASH_RADIUS)
+        ns = gemmi.NeighborSearch(model, structure.cell, BOND_SEARCH_RADIUS)
         ns.populate(include_h=False)
 
-        contact_counts: Dict[tuple, int] = defaultdict(int)
-        contact_details: Dict[tuple, list] = defaultdict(list)
+        close_details: Dict[tuple, list] = defaultdict(list)   # pair_key -> [atom_pair]
+        accepted: Dict[tuple, dict] = defaultdict(dict)        # pair_key -> {atom_pair: record}
+        rejected: Dict[tuple, dict] = defaultdict(dict)        # pair_key -> {atom_pair: record}
+        evaluated = set()                                      # atom pairs already judged as bonds
 
         for chain in model:
+            chain1_id = chain.name
             for residue in chain:
                 if residue.name in WATER_NAMES:
                     continue
                 for atom in residue:
-                    if atom.element.name not in VALID_BOND_ATOMS:
+                    el1 = atom.element.name
+                    if el1 not in VALID_BOND_ATOMS:
                         continue
+                    partner_serials = annotated.partners.get(atom.serial, ())
 
-                    chain1_id = chain.name
-                    res1_id = residue.seqid.num
-                    res1_name = residue.name
-
-                    # ── Inter-chain contacts ──
-                    for mark in ns.find_neighbors(atom, max_dist = CLASH_RADIUS):
+                    for mark in ns.find_neighbors(atom, max_dist = BOND_SEARCH_RADIUS):
                         cra = mark.to_cra(model) # Chain, Residue, Atom
-                        if cra.residue.name in WATER_NAMES or cra.atom.element.name not in VALID_BOND_ATOMS:
+                        chain2_id = cra.chain.name
+                        if chain2_id == chain1_id:
+                            continue
+                        el2 = cra.atom.element.name
+                        if cra.residue.name in WATER_NAMES or el2 not in VALID_BOND_ATOMS:
                             continue
 
-                        chain2_id = cra.chain.name
-                        res2_id = cra.residue.seqid.num
+                        # mark.pos is the (possibly symmetry-image) position that was matched
+                        dist = atom.pos.dist(mark.pos)
+                        pair_key = tuple(sorted([chain1_id, chain2_id]))
+                        atom_pair = tuple(sorted([
+                            (chain1_id, residue.seqid.num, atom.name),
+                            (chain2_id, cra.residue.seqid.num, cra.atom.name),
+                        ]))
 
-                        if chain1_id != chain2_id:
-                            pair_key = tuple(sorted([chain1_id, chain2_id]))
-                            atom_pair = tuple(sorted([
-                                (chain1_id, res1_id, atom.name),
-                                (chain2_id, res2_id, cra.atom.name),
-                            ]))
-                            if atom_pair not in contact_details[pair_key]:
-                                contact_counts[pair_key] += 1
-                                contact_details[pair_key].append(atom_pair)
+                        # ── Close contacts (clash / overlap detection) ──
+                        if dist < CLASH_RADIUS and atom_pair not in close_details[pair_key]:
+                            close_details[pair_key].append(atom_pair)
+
+                        if (pair_key, atom_pair) in evaluated:
+                            continue
+
+                        record = {
+                            'atom1': _atom_label(chain1_id, residue, atom),
+                            'atom2': _atom_label(chain2_id, cra.residue, cra.atom),
+                            'distance': round(dist, 3),
+                        }
+
+                        # ── a. Annotated bond (_struct_conn) ──
+                        if (cra.atom.serial in partner_serials
+                                and dist <= _max_bond_length(el1, el2, ANNOTATED_BOND_TOLERANCE)):
+                            conn_id, conn_type, role = annotated.meta.get(
+                                frozenset((atom.serial, cra.atom.serial)), ('', '', None))
+                            record.update(source='struct_conn', conn_id=conn_id,
+                                          conn_type=conn_type, role=role or '')
+                            accepted[pair_key][atom_pair] = record
+                            evaluated.add((pair_key, atom_pair))
+                            continue
+
+                        # ── b. Distance-only candidate ──
+                        if dist > _max_bond_length(el1, el2, DISTANCE_BOND_TOLERANCE):
+                            continue
+                        evaluated.add((pair_key, atom_pair))
+                        ok, reason = _check_distance_bond(
+                            ns, model,
+                            chain1_id, residue, atom,
+                            chain2_id, cra.residue, cra.atom,
+                            mark.pos, dist,
+                        )
+                        record.update(source='distance', conn_id='', conn_type='', role='')
+                        if ok:
+                            accepted[pair_key][atom_pair] = record
+                        else:
+                            record['reason'] = reason
+                            rejected[pair_key][atom_pair] = record
 
         # ── Classify contacts ──
         bonds_to_add = []
         overlaps_to_resolve = []
         contact_info = {}
 
-        for pair_key, count in contact_counts.items():
+        # Deterministic order: close contacts first, then bond-only / rejected-only pairs
+        pair_keys = list(close_details)
+        for source in (accepted, rejected):
+            pair_keys += [k for k in source if k not in pair_keys]
+
+        for pair_key in pair_keys:
             chain1, chain2 = pair_key
+            close_pairs = close_details.get(pair_key, [])
+            bond_pairs = sorted(accepted.get(pair_key, {}), key=_backbone_link_first)
+            unexplained = [p for p in close_pairs if p not in bond_pairs]
+
+            if bond_pairs:
+                classification = 'overlap' if unexplained else 'bond'
+            else:
+                classification = 'overlap' if len(unexplained) >= 2 else 'none'
+
             contact_info[pair_key] = ResidueContact(
                 chain1=chain1,
                 chain2=chain2,
                 res1=None,
                 res2=None,
-                contact_count=count,
-                atom_pairs=contact_details[pair_key],
+                contact_count=len(bond_pairs) + len(unexplained),
+                atom_pairs=bond_pairs + unexplained,
+                bond_pairs=bond_pairs,
+                classification=classification,
+                bond_records=[accepted[pair_key][p] for p in bond_pairs],
+                rejected_records=list(rejected.get(pair_key, {}).values()),
             )
-            if count == 1:
+            if classification == 'bond':
                 bonds_to_add.append(f"{chain1},{chain2}")
-            else:
+            elif classification == 'overlap':
                 overlaps_to_resolve.append(f"{chain1},{chain2}")
 
         return contact_info, bonds_to_add, overlaps_to_resolve
@@ -502,6 +1060,12 @@ class OverlapResolver:
         Protein chains are merged in C→N order (the chain whose C-terminus forms
         the peptide bond comes first). DNA chains are merged in O3'→P order.
         Branch chains are appended at the end of the merged chain.
+
+        Returns
+        -------
+        Tuple of:
+            - 'ok' or 'alarm' (protein–nucleic acid bond)
+            - List of chain pairs ("c1,c2") that were actually used for merging
         """
         model = structure[0]
 
@@ -569,7 +1133,7 @@ class OverlapResolver:
 
             # Protein-DNA: alarm!
             else:
-                return 'alarm'
+                return 'alarm', []
 
         # ------------------------------------------------------------------
         # 3. Connected components from the *validated* bonds
@@ -669,7 +1233,7 @@ class OverlapResolver:
                 next_num += 1
             model.add_chain(new_chain)
 
-        return 'ok'
+        return 'ok', cleaned_bonds
 
 def select_ligand_chains(structure: gemmi.Structure):
     """
@@ -1278,6 +1842,44 @@ def check_structure(basename):
 ### Core workflow ###
 #--------------------
 
+BOND_REPORT_COLUMNS = ['pdb_id', 'stage', 'chain1', 'chain2', 'status', 'source', 'atom1', 'atom2',
+                       'distance', 'conn_id', 'conn_type', 'role', 'reason']
+
+
+def _record_bonds(flags: dict, pdb_id: str, stage: str, contact_info: dict, merged_pairs, alarm: bool = False):
+    """
+    Append accepted / rejected inter-chain covalent bonds to flags['covalent_bonds'].
+
+    stage  : 'asu' for the deposited asymmetric unit, '<pdb_id>_<chain>' for the
+             per-ligand structure built by build_pdb (chain names there are the
+             renamed ones: Z = ligand, A, B, ... = neighbours)
+    status : merged      -> bond used to merge the two chains (a covalent bond was added)
+             not_merged  -> accepted, but merge_bonded_chains did not use it
+                            (e.g. protein–protein disulfide, chain removed as overlap)
+             overlap     -> accepted, but the chain pair also has unexplained clashes
+             alarm       -> protein–nucleic acid bond; entry / ligand was skipped
+             rejected    -> distance-only candidate that failed a check (see 'reason')
+    """
+    merged = {tuple(sorted(p.split(','))) for p in merged_pairs}
+    for pair_key, info in contact_info.items():
+        if info.classification == 'overlap':
+            status = 'overlap'
+        elif alarm:
+            status = 'alarm'
+        else:
+            status = 'merged' if pair_key in merged else 'not_merged'
+
+        rows = [(status, rec) for rec in info.bond_records]
+        rows += [('rejected', rec) for rec in info.rejected_records]
+        for row_status, rec in rows:
+            row = {col: '' for col in BOND_REPORT_COLUMNS}
+            row.update(rec)
+            row.update(pdb_id=pdb_id, stage=stage, chain1=pair_key[0], chain2=pair_key[1], status=row_status)
+            flags['covalent_bonds'].append(row)
+
+    print(flags)
+
+
 def _process_pdb(pdb_id):
     """
     Main clean-up of mmCIF files.
@@ -1285,7 +1887,8 @@ def _process_pdb(pdb_id):
 
     1. Reduce residues to maximum atoms / maximum occupancy conformers.
     2. Remove crystallization artifacts
-    3. Resolve steric clashes and missing bonds
+       2.1 Map covalent bonds annotated in _struct_conn onto the structure
+    3. Resolve steric clashes and missing bonds (distance + _struct_conn)
     4. Select possible ligand chains: 10-100 heavy atoms, at least 1 C, no metals (except for METALLOCOFACTORS)
     5. For each ligand chain:
         5.1. Unresolved ligand atoms?
@@ -1303,27 +1906,37 @@ def _process_pdb(pdb_id):
             'has_modified_residues_in_shell': False,
             'has_branched_residues_in_shell': False,
             'failure_reason': None,  # None means success
+            'covalent_bonds': [],    # see _record_bonds
         }
 
     try:
 
         # Step 1: remove artifacts and fix file formatting
-        structure = gemmi.read_structure(f'{DATA_DIR}/mmCIF/raw/{pdb_id}.cif')
+        raw_cif_path = f'{DATA_DIR}/mmCIF/raw/{pdb_id}.cif'
+        structure = gemmi.read_structure(raw_cif_path)
         structure = remove_artifacts_and_fix_quotes(structure)
 
         # Step 2: reduce conformer
         structure = select_conformer(structure)
 
+        # Step 2.1: map covalent bonds annotated in _struct_conn onto the
+        # remaining atoms (via serial numbers, which survive all later clones)
+        annotated_bonds = read_annotated_covalent_bonds(raw_cif_path)
+        annotated_index = tag_annotated_bonds(structure, annotated_bonds)
+
         # Step 3: resolve steric clashes and missing bonds between chains
         overlap_resolver = OverlapResolver()
-        contact_info, bonds_to_add, overlaps_to_resolve = overlap_resolver.detect_contacts(structure)
+        contact_info, bonds_to_add, overlaps_to_resolve = overlap_resolver.detect_contacts(structure, annotated_index)
 
         structure_list, bonds_list = overlap_resolver.resolve_overlaps(structure, overlaps_to_resolve, bonds_to_add)
+        asu_merged = set()  # bonds merged in any of the overlap alternatives
         for structure, bonds_to_add in zip(structure_list, bonds_list):
             try:
-                message = overlap_resolver.merge_bonded_chains(structure, bonds_to_add, contact_info)
+                message, merged = overlap_resolver.merge_bonded_chains(structure, bonds_to_add, contact_info)
                 if message == 'alarm':
+                    _record_bonds(flags, pdb_id, 'asu', contact_info, asu_merged, alarm=True)
                     return flags
+                asu_merged.update(merged)
 
                 # 3.2: save cleaned mmCIF structure
                 _assign_subchain_ids(structure)
@@ -1346,12 +1959,14 @@ def _process_pdb(pdb_id):
                             ccd_codes = [res.name for res in structure[0][chain_id]]
                             lig_name = '-'.join(ccd_codes)
 
+                            basename = f'{pdb_id}_{chain_id}'
                             new_structure = build_pdb(structure, chain_id)
-                            lig_contact_info, lig_bonds, lig_overlaps = overlap_resolver.detect_contacts(new_structure)
-                            message = overlap_resolver.merge_bonded_chains(new_structure, lig_bonds, lig_contact_info)
+                            lig_contact_info, lig_bonds, lig_overlaps = overlap_resolver.detect_contacts(new_structure, annotated_index)
+                            message, lig_merged = overlap_resolver.merge_bonded_chains(new_structure, lig_bonds, lig_contact_info)
+                            _record_bonds(flags, pdb_id, basename, lig_contact_info, lig_merged,
+                                          alarm=(message == 'alarm'))
                             if message == 'alarm':
                                 continue
-                            basename = f'{pdb_id}_{chain_id}'
 
                             opts = gemmi.PdbWriteOptions()
                             opts.ter_ignores_type = True   # only emit TER when the chain name actually changes
@@ -1389,6 +2004,8 @@ def _process_pdb(pdb_id):
             except Exception as e:
                 continue
 
+        _record_bonds(flags, pdb_id, 'asu', contact_info, asu_merged)
+
     except Exception as e:
         print(f'{pdb_id} - {e}')
         traceback.print_exc()
@@ -1414,6 +2031,7 @@ def _empty_flags(failure_reason):
         'has_modified_residues_in_shell': False,
         'has_branched_residues_in_shell': False,
         'failure_reason': failure_reason,
+        'covalent_bonds': [],
     }
 
 
@@ -1442,6 +2060,10 @@ def main(pdb_id):
     ----------
     pdb_id [str]: PDB ID of entry
     """
+
+    # Load the CCD bonding table in this (long-lived) worker before forking, so
+    # every per-entry child inherits it instead of unpickling it again.
+    _get_ccd_bonding()
 
     result_queue = _MP_CONTEXT.Queue()
     proc = _MP_CONTEXT.Process(target=_worker_target, args=(result_queue, pdb_id))
@@ -1477,6 +2099,39 @@ def main(pdb_id):
         return _empty_flags(f'child_crash: exitcode={proc.exitcode}')
 
 
+def _write_covalent_bond_summary(f, bond_report: pd.DataFrame):
+    """Covalent-bond section of corrections.txt (details in covalent_bonds.tsv)."""
+    f.write(f"  --- Covalent bonds between chains (details: covalent_bonds.tsv) ---\n")
+    if bond_report.empty:
+        f.write("  None detected\n\n")
+        return
+
+    # The same physical bond can show up in several stages; count it once per stage
+    unique = bond_report.drop_duplicates(['pdb_id', 'stage', 'atom1', 'atom2'])
+    added = unique[unique['status'] == 'merged']
+    rejected = unique[unique['status'] == 'rejected']
+
+    f.write(f"  Entries with covalent bonds added  : {added['pdb_id'].nunique():>6}\n")
+    for source, label in (('struct_conn', 'via _struct_conn'), ('distance', 'via distance + checks')):
+        n_entries = added.loc[added['source'] == source, 'pdb_id'].nunique()
+        n_bonds = int((added['source'] == source).sum())
+        f.write(f"    {label:<32}: {n_entries:>6} entries, {n_bonds:>6} bonds\n")
+    for status, label in (('not_merged', 'Accepted, not merged'),
+                          ('overlap', 'Accepted, pair resolved as overlap'),
+                          ('alarm', 'Accepted, protein–NA alarm')):
+        f.write(f"  {label:<35}: {int((unique['status'] == status).sum()):>6} bonds\n")
+    f.write(f"  Distance-only candidates rejected  : {len(rejected):>6}\n")
+    for reason, count in rejected['reason'].value_counts().items():
+        f.write(f"    {reason:<32}: {count:>6}\n")
+
+    f.write("\n  PDB IDs with covalent bonds added (bonds by source):\n")
+    per_entry = added.groupby('pdb_id')['source'].value_counts().unstack(fill_value=0)
+    for pdb_id, counts in per_entry.iterrows():
+        parts = ', '.join(f'{src}: {int(n)}' for src, n in counts.items() if n)
+        f.write(f"    {pdb_id}  ({parts})\n")
+    f.write("\n")
+
+
 def fix_structures(num_cores = 1):
     """
     Runs through all dataframe entries and converts mmCIF to semi-processed PDB
@@ -1497,6 +2152,7 @@ def fix_structures(num_cores = 1):
         with gzip.GzipFile(fileobj=r.raw) as gz, open(f'{DATA_DIR}/mmCIF/ccd/components.cif', "wb") as f:
             shutil.copyfileobj(gz, f, length=1 << 20)  # 1 MB chunks
     _load_ccd_cache()
+    build_ccd_bonding_cache()  # rebuild: components.cif was just refreshed
 
     #fixed_set = set([x[:4] for x in os.listdir(f'{DATA_DIR}/pdb/fixed')])
     fixed_set = set() # empty set, re-run for everything
@@ -1523,6 +2179,13 @@ def fix_structures(num_cores = 1):
                 key = reason
             failure_counts[key] += 1
 
+    # Covalent bond report: one row per accepted / rejected inter-chain bond
+    bond_report = pd.DataFrame(
+        [row for r in results for row in r.get('covalent_bonds', [])],
+        columns=BOND_REPORT_COLUMNS,
+    )
+    bond_report.to_csv(f'{DATA_DIR}/covalent_bonds.tsv', sep='\t', index=False)
+
     with open(f'{DATA_DIR}/corrections.txt', 'w') as f:
         f.write(f"\n{'='*60}\n")
         f.write(f"  Structure fixer — summary ({n_total} input systems)\n")
@@ -1541,6 +2204,8 @@ def fix_structures(num_cores = 1):
         f.write(f"  Child crashed (segfault/OOM)   : {failure_counts.get('child_crash', 0):>6}\n")
         f.write(f"  Uncaught exceptions            : {failure_counts.get('exception', 0):>6}\n\n")
 
+        _write_covalent_bond_summary(f, bond_report)
+
         # Log individual exceptions for debugging
         exceptions = [(r['failure_reason']) for r in results if r['failure_reason'] and r['failure_reason'].startswith('exception:')]
         if exceptions:
@@ -1549,4 +2214,4 @@ def fix_structures(num_cores = 1):
                 f.write(f"  {exc}\n")
 
 if __name__ == '__main__':
-	main('3fiv')
+	main('6oim')
